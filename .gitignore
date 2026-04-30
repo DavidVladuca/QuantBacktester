@@ -4,7 +4,7 @@ __pycache__/
 *.pyc
 
 # Java (Maven/Gradle)
-backend_java/target/
+backend_java/backtester/target/
 backend_java/build/
 *.class
 
@@ -14,7 +14,7 @@ backend_java/build/
 *.iml
 
 # Configuration files
-**/config.properties
+**/config.properties    
 
 # Ignore all CSV data to prevent 200MB+ pushes
 *.csv
