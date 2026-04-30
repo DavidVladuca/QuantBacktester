@@ -1,0 +1,26 @@
+# Python
+strategy_python/venv/
+__pycache__/
+*.pyc
+
+# Java (Maven/Gradle)
+backend_java/target/
+backend_java/build/
+*.class
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Configuration files
+**/config.properties
+
+# Ignore all CSV data to prevent 200MB+ pushes
+*.csv
+# Ignore Python and Java log files
+*.txt
+*.log
+# Ignore configuration and results
+strategy_python/config.json
+strategy_python/grid_search_results*.csv
