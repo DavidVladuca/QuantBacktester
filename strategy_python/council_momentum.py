@@ -2,83 +2,66 @@ import numpy as np
 from collections import deque
 
 class MomentumEngineStrategy:
-    def __init__(self, target_symbol, lookback=60, vol_z_threshold=1.8, volume_mult=1.2):
+    def __init__(self, target_symbol, window_ms=300000, vol_z_threshold=1.8, volume_mult=1.0):
         self.target_symbol = target_symbol
-        self.lookback = lookback
+        self.window_ms = window_ms
         self.vol_z_threshold = vol_z_threshold
         self.volume_mult = volume_mult
-        
-        # State tracking
-        self.prev_price = None
-        self.returns = deque(maxlen=self.lookback)
-        self.volumes = deque(maxlen=self.lookback)
-        
-        # O(1) Math State
-        self.sum_returns = 0.0
-        self.sum_sq_returns = 0.0
-        self.sum_volume = 0.0 
+
+        self.price_history = deque()  # (timestamp, price) tuples
+        self.vol_history = deque()    # (timestamp, volume) tuples, always co-pruned
 
     def process_event(self, event):
         if event.get("type") != "MARKET_DATA" or event.get("symbol") != self.target_symbol:
             return None
 
-        price = event.get("price", event.get("bid_price", 0)) # Safe fallback
+        price = event.get("price", event.get("bid_price", 0))
         volume = event.get("volume", event.get("bid_size", 0) + event.get("ask_size", 0))
         timestamp = event["timestamp"]
 
-        # If first tick, just store and return
-        if self.prev_price is None:
-            self.prev_price = price
+        if price <= 0:
             return self._empty_signal(timestamp, price)
 
-        # 1. CALCULATE CURRENT RETURN
-        # Log return is standard for financial time series
-        current_return = np.log(price) - np.log(self.prev_price)
-        self.prev_price = price
+        self.price_history.append((timestamp, price))
+        self.vol_history.append((timestamp, volume))
 
-        # 2. O(1) ROLLING UPDATES
-        if len(self.returns) == self.lookback:
-            old_ret = self.returns[0]
-            old_vol = self.volumes[0]
-            
-            self.sum_returns -= old_ret
-            self.sum_sq_returns -= (old_ret ** 2)
-            self.sum_volume -= old_vol
+        cutoff = timestamp - self.window_ms
+        while self.price_history and self.price_history[0][0] < cutoff:
+            self.price_history.popleft()
+            self.vol_history.popleft()
 
-        self.returns.append(current_return)
-        self.volumes.append(volume)
-        
-        self.sum_returns += current_return
-        self.sum_sq_returns += (current_return ** 2)
-        self.sum_volume += volume
+        if len(self.price_history) < 2:
+            return self._empty_signal(timestamp, price)
 
-        # 3. STATISTICAL BREAKOUT LOGIC
-        signal = "HOLD"
-        z_score_ret = 0.0
-        
-        if len(self.returns) >= self.lookback:
-            # Calculate Realized Volatility (Standard Deviation of returns)
-            mean_ret = self.sum_returns / self.lookback
-            variance = (self.sum_sq_returns - (self.sum_returns ** 2) / self.lookback) / self.lookback
-            std_dev = np.sqrt(max(1e-9, variance))
-            
-            # How extreme is this current move?
-            z_score_ret = (current_return - mean_ret) / std_dev
-            
-            # Average Volume
-            avg_vol = self.sum_volume / self.lookback
-            
-            # 🚨 THE TRIGGER: 3-Sigma move + Volume Anomaly
-            if z_score_ret >= self.vol_z_threshold and volume >= (avg_vol * self.volume_mult):
-                signal = "BUY"
-            elif z_score_ret <= -self.vol_z_threshold and volume >= (avg_vol * self.volume_mult):
-                signal = "SELL"
+        # Total log return from the oldest surviving price to now
+        oldest_price = self.price_history[0][1]
+        total_return = np.log(price / oldest_price)
+
+        # Per-step volatility across the window — normalises total_return into
+        # standard deviations of expected random-walk drift over n steps
+        prices = np.fromiter((p for _, p in self.price_history), dtype=np.float64,
+                             count=len(self.price_history))
+        step_returns = np.diff(np.log(prices))
+        step_std = np.std(step_returns) if len(step_returns) > 1 else 1e-9
+
+        n_steps = len(step_returns)
+        z_score_ret = total_return / max(step_std * np.sqrt(n_steps), 1e-9)
+
+        # Volume modifier: penalises below-average volume, caps at 1.0
+        vols = np.fromiter((v for _, v in self.vol_history), dtype=np.float64,
+                           count=len(self.vol_history))
+        avg_vol = np.mean(vols)
+        vol_modifier = min(1.0, volume / (avg_vol * self.volume_mult)) if avg_vol > 0 else 0.0
+
+        base_confidence = z_score_ret / (self.vol_z_threshold * 2.0)
+        confidence = float(np.clip(base_confidence * vol_modifier, -1.0, 1.0))
 
         return {
             "type": "ORDER_SIGNAL",
             "symbol": self.target_symbol,
             "timestamp": timestamp,
-            "signal": signal,
+            "signal": "TRADE",
+            "confidence": confidence,
             "price": price,
             "metadata": {
                 "momentum_z_score": round(z_score_ret, 4),
@@ -87,4 +70,12 @@ class MomentumEngineStrategy:
         }
 
     def _empty_signal(self, timestamp, price):
-        return {"type": "ORDER_SIGNAL", "symbol": self.target_symbol, "timestamp": timestamp, "signal": "HOLD", "price": price, "metadata": {"momentum_z_score": 0.0}}
+        return {
+            "type": "ORDER_SIGNAL",
+            "symbol": self.target_symbol,
+            "timestamp": timestamp,
+            "signal": "HOLD",
+            "confidence": 0.0,
+            "price": price,
+            "metadata": {"momentum_z_score": 0.0}
+        }

@@ -16,7 +16,12 @@ public class Main {
         String signal;
         double price;
         String symbol;
-        double allocation;
+        double quantity;
+    }
+
+    public static class BacktestConfig {
+        double commission_rate = 0.0001;
+        double slippage_rate  = 0.0005;
     }
 
     public static class MarketEvent {
@@ -60,28 +65,40 @@ public class Main {
 
     public static void main(String[] args) {
         // 🚨 ROUTE CONSOLE OUTPUT TO FILE
-        try {
-            java.io.PrintStream logFile = new java.io.PrintStream(new java.io.FileOutputStream("engine_log.txt"));
-            System.setOut(logFile);
-            System.setErr(logFile);
-            System.out.println(">>> LOGGING INITIATED: " + new java.util.Date());
-        } catch (java.io.FileNotFoundException e) {
-            e.printStackTrace();
-        }
+        // try {
+        //     java.io.PrintStream logFile = new java.io.PrintStream(new java.io.FileOutputStream("engine_log.txt"));
+        //     System.setOut(logFile);
+        //     System.setErr(logFile);
+        //     System.out.println(">>> LOGGING INITIATED: " + new java.util.Date());
+        // } catch (java.io.FileNotFoundException e) {
+        //     e.printStackTrace();
+        // }
 
         boolean IS_BACKTEST_MODE = true; 
         
         String[] csvFiles = {
+            // "data/NVDA_macro_stress.csv",
+            // "data/SMH_macro_stress.csv",
+            // "data/NVDA_micro_stress.csv",
+            // "data/SMH_micro_stress.csv"
             "data/NVDA_macro_1min.csv",
             "data/SMH_macro_1min.csv",
-            "data/NVDA_micro_2day.csv",
-            "data/SMH_micro_2day.csv"
+            "data/NVDA_micro_quotes.csv",
+            "data/SMH_micro_quotes.csv"
         };
         
         String[] tickers = {"NVDA", "SMH"};
         Gson gson = new Gson();
         
-        Portfolio portfolio = new Portfolio(10000.0);
+        // Read execution costs from the shared config.json so the grid search can sweep them
+        BacktestConfig bConfig = new BacktestConfig();
+        try (java.io.FileReader cfgReader = new java.io.FileReader("../../strategy_python/config.json")) {
+            bConfig = gson.fromJson(cfgReader, BacktestConfig.class);
+        } catch (Exception e) {
+            System.out.println("config.json not found — using default commission/slippage rates.");
+        }
+
+        Portfolio portfolio = new Portfolio(10000.0, bConfig.commission_rate, bConfig.slippage_rate);
         ExecutionGateway gateway = IS_BACKTEST_MODE ? new SimulatedGateway() : new AlpacaGateway();
 
         Map<String, Double> finalPrices = new HashMap<>(); 
@@ -96,7 +113,7 @@ public class Main {
         try (ZContext context = new ZContext()) {
             ZMQ.Socket socket = context.createSocket(SocketType.REQ);
             socket.connect("tcp://localhost:5555");
-            socket.setReceiveTimeOut(IS_BACKTEST_MODE ? 5000 : 2000); 
+            socket.setReceiveTimeOut(2000); 
 
             // Initialize hydration state
             boolean isHydrating = true; // Start as true even in backtest to warm up Z-Score
@@ -116,6 +133,12 @@ public class Main {
             long maxLatencyMicros = 0;
             long eventCount = 0;
 
+            // 🚨 NEW: Throttle Variables
+            Map<String, Long> lastSentTimestamp = new HashMap<>();
+            Map<String, Double> lastSentPrice = new HashMap<>();
+            long THROTTLE_MS = 50;         // Max one send per 50ms per symbol
+            double PRICE_MOVE_THRESHOLD = 0.0001; // 0.01% — bypass time gate on significant moves
+
             while (true) { 
                 MarketEvent event = eventQueue.take(); 
                 
@@ -130,8 +153,7 @@ public class Main {
                 if (!transitionedToMicro && event.bid_price > 0) {
                     transitionedToMicro = true;
                     isHydrating = false; // Stop "hydrating", start trading
-                    beginningPrices.clear(); // RESET the benchmark to current prices
-                    System.out.println("\n>>> MICRO TRADING WINDOW DETECTED: Resetting Benchmark Prices...");
+                    System.out.println("\n>>> MICRO TRADING WINDOW DETECTED. Benchmark anchored to session open prices.");
                 }
                 
                 // Track beginning prices for the current active window
@@ -142,43 +164,67 @@ public class Main {
                 finalPrices.put(event.getSymbol(), event.getPrice()); 
                 portfolio.updateMarketPrice(event.getSymbol(), event.getPrice());
 
+                // 🚨 THE THROTTLE LOGIC
+                boolean isMacro = (event.bid_price == 0);
+                long lastSend = lastSentTimestamp.getOrDefault(event.getSymbol(), 0L);
+                
+                if (!isMacro && (event.getTimestamp() - lastSend < THROTTLE_MS)) {
+                    double lastPrice = lastSentPrice.getOrDefault(event.getSymbol(), 0.0);
+                    boolean priceStationary = lastPrice <= 0 ||
+                        Math.abs(event.getPrice() - lastPrice) / lastPrice <= PRICE_MOVE_THRESHOLD;
+                    if (priceStationary) {
+                        continue; // Within time window and no significant price move — skip
+                    }
+                    // Price moved beyond threshold — bypass time gate and send immediately
+                }
+
+                // Update the "last send" clock and price
+                lastSentTimestamp.put(event.getSymbol(), event.getTimestamp());
+                lastSentPrice.put(event.getSymbol(), event.getPrice());
+
                 String jsonPayload = gson.toJson(event);
-                long startTime = System.nanoTime();
+                String response = null;
+                long latencyMicros = 0;
+                int maxRetries = 5;
+                for (int attempt = 0; attempt < maxRetries; attempt++) {
+                    long startTime = System.nanoTime();
+                    socket.send(jsonPayload);
+                    response = socket.recvStr();
+                    latencyMicros = (System.nanoTime() - startTime) / 1000;
 
-                socket.send(jsonPayload);
-                String response = socket.recvStr();
+                    if (response != null) break;
 
-                long endTime = System.nanoTime();
-                long latencyMicros = (endTime - startTime) / 1000;
-
-                if (response == null) {
-                    System.out.println("WARNING: Strategy is offline. Rebuilding ZMQ Socket...");
+                    System.out.println("WARNING: Strategy timeout (attempt " + (attempt + 1) + "/" + maxRetries + "). Rebuilding socket...");
                     socket.close();
                     socket = context.createSocket(SocketType.REQ);
                     socket.connect("tcp://localhost:5555");
-                    socket.setReceiveTimeOut(IS_BACKTEST_MODE ? 5000 : 1000); 
+                    socket.setReceiveTimeOut(IS_BACKTEST_MODE ? 5000 : 1000);
                     Thread.sleep(1000);
+                }
+
+                if (response == null) {
+                    System.out.println("ERROR: Strategy unreachable after " + maxRetries + " attempts. Dropping event.");
                     continue;
-                } else {
-                    eventCount++;
-                    totalLatencyMicros += latencyMicros;
-                    maxLatencyMicros = Math.max(maxLatencyMicros, latencyMicros);
+                }
 
-                    // --- THE TELEMETRY PRINT ---
-                    int printInterval = IS_BACKTEST_MODE ? 50000 : 10;
-                    if (!isHydrating && eventCount % printInterval == 0) { 
-                        System.out.println("Events Processed: " + eventCount + " | Avg Latency: " + (totalLatencyMicros / eventCount) + " µs"); 
-                    }
+                eventCount++;
+                totalLatencyMicros += latencyMicros;
+                maxLatencyMicros = Math.max(maxLatencyMicros, latencyMicros);
 
-                    // Only process signals if we are past the hydration/macro phase
-                    if (!isHydrating) {
-                        OrderSignal os = gson.fromJson(response, OrderSignal.class);
-                        if (os.signal != null && !os.signal.equals("HOLD")) {
-                            Order newOrder = portfolio.createOrder(os.signal, os.price, os.symbol, 1.0);
-                            if (newOrder != null) { 
-                                gateway.execute(newOrder, event); 
-                                portfolio.applyFill(newOrder); 
-                            } 
+                // --- THE TELEMETRY PRINT ---
+                // int printInterval = IS_BACKTEST_MODE ? 50000 : 10;
+                // if (!isHydrating && eventCount % printInterval == 0) {
+                //     System.out.println("Events Processed: " + eventCount + " | Avg Latency: " + (totalLatencyMicros / eventCount) + " µs");
+                // }
+
+                // Only process signals if we are past the hydration/macro phase
+                if (!isHydrating) {
+                    OrderSignal os = gson.fromJson(response, OrderSignal.class);
+                    if (os.signal != null && !os.signal.equals("HOLD")) {
+                        Order newOrder = portfolio.createOrder(os.signal, os.price, os.symbol, (double) os.quantity);
+                        if (newOrder != null) {
+                            gateway.execute(newOrder, event);
+                            portfolio.applyFill(newOrder);
                         }
                     }
                 }

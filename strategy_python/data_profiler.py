@@ -1,20 +1,22 @@
 import pandas as pd
 import numpy as np
+import os
 
 def profile_market_regimes(input_file):
-    print(f"Interrogating {input_file}... (Parsing Date Strings)")
+    print(f"Interrogating {input_file} for Goldilocks Days...")
     
     chunksize = 1000000
     daily_stats = {}
 
     for chunk in pd.read_csv(input_file, chunksize=chunksize):
-        # 🚨 THE FIX: Convert string timestamps to actual datetime objects
         chunk['timestamp'] = pd.to_datetime(chunk['timestamp'])
         
-        # Calculate Mid-Price
-        chunk['mid'] = (chunk['bid_price'] + chunk['ask_price']) / 2.0
-        
-        # Extract just the Date (e.g., '2026-04-14')
+        # Determine if Macro or Micro file based on columns
+        if 'bid_price' in chunk.columns:
+            chunk['mid'] = (chunk['bid_price'] + chunk['ask_price']) / 2.0
+        else:
+            chunk['mid'] = chunk['close'] # Fallback for macro
+            
         chunk['date_key'] = chunk['timestamp'].dt.date
         
         for date, group in chunk.groupby('date_key'):
@@ -23,31 +25,50 @@ def profile_market_regimes(input_file):
             daily_stats[date].extend(group['mid'].tolist())
 
     print("\n--- MARKET REGIME REPORT ---")
-    print(f"{'Date':<15} | {'Volatility (StdDev)':<20} | {'Price Range %':<15}")
-    print("-" * 55)
+    print(f"{'Date':<15} | {'Vol (Returns %)':<15} | {'Range %':<10} | {'Directional Move %':<15}")
+    print("-" * 65)
 
     regimes = []
     for date, prices_list in daily_stats.items():
         prices = np.array(prices_list)
-        if len(prices) < 5000: continue # Skip weekends or half-days
+        if len(prices) < 3000: continue # Skip weekends/short days
         
-        vol = np.std(prices)
+        # 🚨 THE FINAL FIX: Log Returns Volatility
+        # This perfectly aligns the profiler with the trading bot's math.
+        returns = np.diff(np.log(prices))
+        vol = np.std(returns) * 100  # Converted to % to match your config thresholds
+        
         price_range = (np.max(prices) - np.min(prices)) / np.min(prices) * 100
-        regimes.append({'date': date, 'vol': vol, 'range': price_range})
-        print(f"{str(date):<15} | {vol:<20.4f} | {price_range:<15.2f}%")
+        
+        # Directional trend (Close vs Open)
+        open_price = prices[0]
+        close_price = prices[-1]
+        directional_move = abs(close_price - open_price) / open_price * 100
+        
+        regimes.append({
+            'date': date, 
+            'vol': vol, 
+            'range': price_range,
+            'trend': directional_move
+        })
+        print(f"{str(date):<15} | {vol:<15.4f} | {price_range:<10.2f}% | {directional_move:<15.2f}%")
 
-    # Find the extremes
-    meat_grinder = max(regimes, key=lambda x: x['vol'])
-    desert = min(regimes, key=lambda x: x['vol'])
+    # Find the 3 Archetypes
+    meat_grinder = max(regimes, key=lambda x: x['vol'])    # Highest Chop
+    desert = min(regimes, key=lambda x: x['vol'])          # Quietest Day
+    trend_day = max(regimes, key=lambda x: x['trend'])     # Cleanest Directional Move
 
-    print(f"\n🔥 RECOMMENDATION:")
-    print(f"Volatile 'Meat Grinder' Day: {meat_grinder['date']} ({meat_grinder['range']:.2f}% swing)")
-    print(f"Quiet 'Desert' Day: {desert['date']} ({desert['range']:.2f}% swing)")
+    print(f"\n🔥 THE 3 REPRESENTATIVE DAYS:")
+    print(f"1. Meat Grinder (Chop): {meat_grinder['date']} (Vol: {meat_grinder['vol']:.4f}%)")
+    print(f"2. Desert (Quiet):      {desert['date']} (Vol: {desert['vol']:.4f}%)")
+    print(f"3. Trend Day (Run):     {trend_day['date']} (Move: {trend_day['trend']:.2f}%)")
     
-    return meat_grinder['date'], desert['date']
+    return [str(meat_grinder['date']), str(desert['date']), str(trend_day['date'])]
 
-# RUN PROFILER
-nvda_path = r"C:\Users\PC\Desktop\QuantBacktester\backend_java\backtester\data\NVDA_micro_quotes.csv"
-smh_path = r"C:\Users\PC\Desktop\QuantBacktester\backend_java\backtester\data\SMH_micro_quotes.csv"
-volatile_date, quiet_date = profile_market_regimes(nvda_path)
-volatile_date_smh, quiet_date_smh = profile_market_regimes(smh_path)
+if __name__ == "__main__":
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Profile NVDA to set the baseline dates for everything
+    nvda_path = os.path.join(script_dir, "..", "backend_java", "backtester", "data", "NVDA_micro_quotes.csv")
+    
+    magic_dates = profile_market_regimes(nvda_path)
+    print(f"\n👉 COPY THESE DATES INTO YOUR SLICER: {magic_dates}")
