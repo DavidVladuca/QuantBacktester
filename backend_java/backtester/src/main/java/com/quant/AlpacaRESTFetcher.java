@@ -17,6 +17,7 @@ public class AlpacaRESTFetcher {
     private final BlockingQueue<Main.MarketEvent> eventQueue;
     private final String[] tickers;
     private final int limit;
+    private final int timeframeMinutes;
 
     private final String apiKey;
     private final String apiSecret;
@@ -38,10 +39,11 @@ public class AlpacaRESTFetcher {
         @SerializedName("v") public double v; // Volume
     }
 
-    public AlpacaRESTFetcher(BlockingQueue<Main.MarketEvent> eventQueue, String[] tickers, int limit) {
+    public AlpacaRESTFetcher(BlockingQueue<Main.MarketEvent> eventQueue, String[] tickers, int limit, int timeframeMinutes) {
         this.eventQueue = eventQueue;
         this.tickers = tickers;
         this.limit = limit;
+        this.timeframeMinutes = timeframeMinutes;
 
         try (java.io.FileInputStream fis = new java.io.FileInputStream("config.properties")) {
             java.util.Properties prop = new java.util.Properties();
@@ -51,7 +53,15 @@ public class AlpacaRESTFetcher {
         } catch (Exception e) {
             throw new RuntimeException("Could not load Alpaca API keys for REST hydration: " + e.getMessage());
         }
-}
+    }
+
+    private String alpacaTimeframe() {
+        if (timeframeMinutes % 60 == 0) {
+            return (timeframeMinutes / 60) + "Hour";
+        }
+
+        return timeframeMinutes + "Min";
+    }
 
     public void start() {
         try {
@@ -63,7 +73,13 @@ public class AlpacaRESTFetcher {
                 System.out.println("[REST FETCHER] Fetching warmup data for: " + ticker);
                 
                 String encodedTicker = java.net.URLEncoder.encode(ticker, java.nio.charset.StandardCharsets.UTF_8);
-                String url = String.format("%s?symbols=%s&timeframe=5Min&limit=%d", BASE_URL, encodedTicker, limit);
+                String url = String.format(
+                    "%s?symbols=%s&timeframe=%s&limit=%d",
+                    BASE_URL,
+                    encodedTicker,
+                    alpacaTimeframe(),
+                    limit
+                );
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
                         .header("APCA-API-KEY-ID", apiKey)

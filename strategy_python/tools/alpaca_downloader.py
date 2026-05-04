@@ -1,4 +1,3 @@
-import os
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -7,11 +6,16 @@ from alpaca.data.requests import StockBarsRequest, StockQuotesRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.data.enums import DataFeed
 
+# change these to adjust timeframe
+BAR_TIMEFRAME_AMOUNT = 5
+BAR_TIMEFRAME_UNIT = TimeFrameUnit.Minute
+BAR_TIMEFRAME_LABEL = "5min"
+
 def load_config(config_path):
     # parse config file in a dictionary
     config = {}
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"(Error) Config file NOT found at: {os.path.abspath(config_path)}")
+    if not config_path.exists():
+        raise FileNotFoundError(f"(Error) Config file NOT found at: {config_path.absolute()}")
     
     with open(config_path, "r") as f:
         for line in f:
@@ -22,7 +26,10 @@ def load_config(config_path):
     return config
 
 # path setup
-ROOT_DIR = Path(__file__).parent.parent
+TOOLS_DIR = Path(__file__).resolve().parent
+STRATEGY_DIR = TOOLS_DIR.parent
+ROOT_DIR = STRATEGY_DIR.parent
+
 CONFIG_PATH = ROOT_DIR / "backend_java" / "backtester" / "config.properties"
 TARGET_FOLDER = ROOT_DIR / "backend_java" / "backtester" / "data"
 
@@ -46,7 +53,7 @@ def download_macro_bars(symbols, output_dir, days=90):
     
     request = StockBarsRequest(
         symbol_or_symbols=symbols,
-        timeframe=TimeFrame(5, TimeFrameUnit.Minute), # this is for 5-minute bars
+        timeframe=TimeFrame(BAR_TIMEFRAME_AMOUNT, BAR_TIMEFRAME_UNIT),
         start=start_time,
         end=end_time,
         feed=DataFeed.IEX
@@ -58,9 +65,9 @@ def download_macro_bars(symbols, output_dir, days=90):
         df = bars_df.xs(symbol)
         df.index = df.index.strftime('%Y-%m-%d %H:%M:%S')
         
-        path = os.path.join(output_dir, f"{symbol}_macro_5min.csv")
+        path = output_dir / f"{symbol}_macro_{BAR_TIMEFRAME_LABEL}.csv"
         df.to_csv(path)
-        print(f"✅ Saved {symbol} Macro Data ({len(df)} rows).")
+        print(f"(Done) Saved {symbol} Macro Data ({len(df)} rows).")
 
 def download_micro_quotes(symbols, output_dir, days=14):
     """Downloads raw Bid/Ask quotes in daily chunks to prevent MemoryError."""
@@ -70,11 +77,11 @@ def download_micro_quotes(symbols, output_dir, days=14):
     start_all = end_all - timedelta(days=days)
 
     for symbol in symbols:
-        path = os.path.join(output_dir, f"{symbol}_micro_quotes_5min.csv")
+        path = os.path.join(output_dir, f"{symbol}_micro_quotes.csv")
         
         # remove old file if it exists to start fresh
-        if os.path.exists(path):
-            os.remove(path)
+        if path.exists():
+            path.unlink()
             
         current_start = start_all
         
@@ -103,7 +110,7 @@ def download_micro_quotes(symbols, output_dir, days=14):
 
                 # append to CSV
                 # header=True only if the file doesnt exist yet !!!!
-                file_exists = os.path.isfile(path)
+                file_exists = path.is_file()
                 df.to_csv(path, mode='a', header=not file_exists)
                 
                 # force clear memory references
@@ -119,8 +126,8 @@ def download_micro_quotes(symbols, output_dir, days=14):
 
 if __name__ == "__main__":
     # verify folder exists or create it
-    if not os.path.exists(TARGET_FOLDER):
-        os.makedirs(TARGET_FOLDER)
+    if not TARGET_FOLDER.exists():
+        TARGET_FOLDER.mkdir(parents=True)
         print(f"(Info) Created directory: {TARGET_FOLDER}")
 
     target_pair = ["NVDA", "SMH"]

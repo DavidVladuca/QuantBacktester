@@ -17,15 +17,17 @@ import java.util.Arrays;
 
 public class LiveMarketStreamer implements WebSocket.Listener { 
     private final BlockingQueue<Main.MarketEvent> eventQueue; 
+    private final BarAggregator barAggregator;
     private final String[] tickers;
     private final Gson gson = new Gson(); 
     private String apiKey; 
     private String apiSecret; 
     private StringBuilder messageBuffer = new StringBuilder(); 
 
-    public LiveMarketStreamer(BlockingQueue<Main.MarketEvent> eventQueue, String[] tickers) { 
+    public LiveMarketStreamer(BlockingQueue<Main.MarketEvent> eventQueue, String[] tickers, int barTimeframeMinutes) { 
         this.eventQueue = eventQueue; 
         this.tickers = tickers;
+        this.barAggregator = new BarAggregator(barTimeframeMinutes);
         try (FileInputStream fis = new FileInputStream("config.properties")) { 
             Properties prop = new Properties(); 
             prop.load(fis); 
@@ -102,14 +104,27 @@ public class LiveMarketStreamer implements WebSocket.Listener {
                         );
 
                         System.out.println(
-                            "[ALPACA BAR] " + symbol +
+                            "[ALPACA RAW BAR] " + symbol +
                             " | price=" + price +
                             " | high=" + high +
                             " | low=" + low +
                             " | volume=" + volume
                         );
 
-                        eventQueue.put(event);
+                        Main.MarketEvent completedBar = barAggregator.update(event);
+
+                        if (completedBar != null) {
+                            System.out.println(
+                                " => [AGGREGATED BAR] " + completedBar.getSymbol() +
+                                " | ts=" + completedBar.getTimestamp() +
+                                " | price=" + completedBar.getPrice() +
+                                " | high=" + completedBar.getHigh() +
+                                " | low=" + completedBar.getLow() +
+                                " | volume=" + completedBar.getVolume()
+                            );
+
+                            eventQueue.put(completedBar);
+                        }
                     }
                 } 
             } catch (Exception e) { 

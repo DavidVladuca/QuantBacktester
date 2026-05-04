@@ -2,27 +2,31 @@ import json
 import subprocess
 import time
 import re
-import os
 import socket
 
-z_score_options = [1.5, 2.0, 3.0]   
-momentum_options = [0.8, 1.2, 1.8]  
-obi_options = [0.40, 0.55] 
-regime_options = [0.05, 0.10, 0.15]
-entry_thresh_options = [0.35, 0.45]       
+z_score_options = [1.25, 1.5, 1.75, 2.0]
+momentum_options = [0.5, 0.7, 0.9, 1.1, 1.3]
+obi_options = [0.0]  # currently unused
+regime_options = [0.04, 0.06, 0.08, 0.10, 0.12]
+entry_thresh_options = [0.25, 0.30, 0.35, 0.40]
 
 total_runs = (len(z_score_options) * len(momentum_options) *
               len(obi_options) * len(regime_options) * len(entry_thresh_options))
 
 # paths
-script_dir = os.path.dirname(os.path.abspath(__file__))
-config_path = os.path.join(script_dir, "config.json")
-results_path = os.path.join(script_dir, "grid_search_results_v5.csv")
-java_dir = os.path.join(script_dir, "..", "backend_java", "backtester") 
+from pathlib import Path
+
+TOOLS_DIR = Path(__file__).resolve().parent
+STRATEGY_DIR = TOOLS_DIR.parent
+ROOT_DIR = STRATEGY_DIR.parent
+
+config_path = STRATEGY_DIR / "config.json"
+results_path = TOOLS_DIR / "grid_search_results.csv"
+java_dir = ROOT_DIR / "backend_java" / "backtester"
 
 # commands
 python_cmd = ["python", "bridge.py"]
-java_cmd = 'mvn exec:java "-Dexec.mainClass=com.quant.Main"'
+java_cmd = 'mvn exec:java "-Dexec.mainClass=com.quant.Main"' 
 
 print(f"GRID SEARCH STARTING: {total_runs} Runs")
 
@@ -50,7 +54,7 @@ with open(results_path, "w") as rf:
                         }, f, indent=4)
 
                     # start bridge.py
-                    bridge = subprocess.Popen(python_cmd, cwd=script_dir)
+                    bridge = subprocess.Popen(python_cmd, cwd=STRATEGY_DIR)
 
                     # poll until the bridge is accepting connections instead of sleeping
                     bridge_ready = False
@@ -74,14 +78,19 @@ with open(results_path, "w") as rf:
                     # start Main.java
                     print("Running Java Engine...")
                     
-                    result = subprocess.run(java_cmd, cwd=java_dir, shell=True, capture_output=True, text=True)
-                    
+                    result = subprocess.run(java_cmd, cwd=java_dir, shell=True, capture_output=True, text=True)                    
                     # stop bridge.py
                     bridge.terminate()
                     bridge.wait()
 
-                    # get results
-                    java_output = result.stdout
+                    # get results from engine_log.txt
+                    engine_log_path = java_dir / "engine_log.txt"
+
+                    if engine_log_path.exists():
+                        with open(engine_log_path, "r", encoding="utf-8", errors="ignore") as lf:
+                            java_output = lf.read()
+                    else:
+                        java_output = result.stdout
                     
                     # search the output string directly
                     pnl = re.search(r"Total Profit/Loss:\s*\$([-]?\d+\.\d+)", java_output)
@@ -90,7 +99,7 @@ with open(results_path, "w") as rf:
                     pnl_val = pnl.group(1) if pnl else "N/A"
                     ret_val = ret.group(1) if ret else "N/A"
                     
-                    print(f"(Good) FINISHED | PnL: ${pnl_val} | Return: {ret_val}%")
+                    print(f"=> FINISHED | PnL: ${pnl_val} | Return: {ret_val}%")
                     rf.write(f"{z},{mom},{obi},{reg},{entry_thresh},{pnl_val},{ret_val}\n")
                     rf.flush()
                     

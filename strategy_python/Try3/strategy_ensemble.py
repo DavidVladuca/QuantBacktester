@@ -29,9 +29,8 @@ class PositionState:
 
 class MasterEnsemble:
     def __init__(self, target_symbol="NVDA", hedge_symbol="SMH"):
-        # --- SETUP LOGGING ---
+        # setup logging
         self.logger = logging.getLogger("CouncilLogger")
-        # self.logger.setLevel(logging.INFO)
         self.logger.setLevel(logging.INFO)
         fh = logging.FileHandler('strategy_log.txt', mode='w', encoding='utf-8')
         formatter = logging.Formatter('%(message)s') 
@@ -42,7 +41,7 @@ class MasterEnsemble:
             
         self.logger.info(">>> Council Brain Initialized. Awaiting Events...")
 
-        # --- LOAD CONFIGURATION ---
+        # configuration
         script_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(script_dir)
         config_path = os.path.join(project_root, "config.json")
@@ -57,15 +56,15 @@ class MasterEnsemble:
                 "obi_threshold": 0.4,
                 "regime_threshold": 0.5
             }
-            
-        z_thresh    = config.get("z_score_threshold", 2.0)
-        mom_thresh  = config.get("momentum_threshold", 3.0)
-        obi_thresh  = config.get("obi_threshold", 0.4)
-        commission  = config.get("commission_rate", 0.0001)
-        slippage    = config.get("slippage_rate", 0.0005)
+
+        z_thresh = config.get("z_score_threshold", 2.0)
+        mom_thresh = config.get("momentum_threshold", 3.0)
+        obi_thresh = config.get("obi_threshold", 0.4)
+        commission = config.get("commission_rate", 0.0001)
+        slippage = config.get("slippage_rate", 0.0005)
         self.regime_vol_threshold = config.get("regime_threshold", 0.5)
 
-        self.logger.info(f"⚙️ LOADED PARAMS: Z={z_thresh} | Mom={mom_thresh} | OBI={obi_thresh} | Regime Vol={self.regime_vol_threshold} | Commission={commission} | Slippage={slippage}")
+        self.logger.info(f"-> LOADED PARAMS: Z={z_thresh} | Mom={mom_thresh} | OBI={obi_thresh} | Regime Vol={self.regime_vol_threshold} | Commission={commission} | Slippage={slippage}")
 
         self.target_symbol = target_symbol
         self.hedge_symbol = hedge_symbol
@@ -80,25 +79,20 @@ class MasterEnsemble:
 
         self.score_history = deque(maxlen=3)
 
-        # Extra filters to avoid chasing exhausted moves
+        # extra filters to avoid chasing exhausted moves
         self.price_history = deque(maxlen=30)
         self.hedge_price_history = deque(maxlen=30)
         self.momentum_history = deque(maxlen=3)
         
         self.sl_vol_multiplier = 3.0
 
-        # TP is not the main exit. Winners should run.
+        # TP is not the main exit (winners should run)
         self.tp_vol_multiplier = 8.0
 
-        # Wider minimum stop. Your old 0.25% stop was too tight for 5-min NVDA bars.
         self.min_risk_pct = 0.0075
-
-        # 5-minute bars: 78 bars = 6.5 trading hours
         self.max_hold_bars = 78
+        self.min_hold_bars = 4  
 
-        self.min_hold_bars = 4  # 20 minutes
-
-        # Wider trailing stop. Old 0.30% trail was cutting winners too early.
         self.trailing_vol_multiplier = 2.5
         self.min_trail_pct = 0.0060
                 
@@ -108,42 +102,33 @@ class MasterEnsemble:
         self.last_exit_time = 0
         self.cooldown_ms = config.get("cooldown_ms", 900000)
 
-        # Real approximate round-trip cost from your model:
-        # entry slippage + exit slippage + commissions.
         self.round_trip_cost_pct = 2.0 * (commission + slippage)
 
         self.total_capital = config.get("total_capital", 10000.0)
         self.max_risk_per_trade_pct = config.get("max_risk_per_trade_pct", 0.01)
         
-        # 🚨 UPDATED: MACRO REGIME TRACKER (Returns-Based)
+        # macro regime tracking
         self.last_sample_time = 0
         self.last_sampled_price = None 
-        self.rolling_returns = deque(maxlen=60) # 60 samples × 5-min interval = 300-min (5h) lookback
+        self.rolling_returns = deque(maxlen=60) 
         self.current_regime = "WARMUP"
         
-        # Note: Because we are now measuring % returns, the threshold needs to be much smaller.
-        # A typical 1-minute return standard deviation for a stock like NVDA is around 0.05% to 0.15%.
-        # So your regime_vol_threshold in config should now be a percentage, like 0.10.
-
     def log(self, msg):
         self.logger.info(msg)
 
     def calculate_shares(self, entry_price, stop_loss_pct, confidence_score):
-        # Prevent divide-by-zero errors
+        # prevent divide-by-zero errors
         if entry_price <= 0 or stop_loss_pct <= 0: 
             return 0
         
-        # 1. Dollar Risk & Risk per Share
+        # risks
         dollar_risk = self.total_capital * self.max_risk_per_trade_pct
         risk_per_share = entry_price * stop_loss_pct
         
-        # 2. Base Shares & Conviction Scaling
+        # shares based on risk + confidence
         base_shares = dollar_risk / risk_per_share
         adjusted_shares = base_shares * abs(confidence_score)
         
-        # 🚨 UPDATED: Buying Power Constraint (Critique #2)
-        # Assuming 1:1 margin requirement for short selling. 
-        # If your broker requires 150% margin for shorts, this formula must be updated to (self.total_capital / 1.5) / entry_price
         max_shares_allowed = self.total_capital / entry_price
         
         return int(min(adjusted_shares, max_shares_allowed))
@@ -157,8 +142,6 @@ class MasterEnsemble:
         symbol = event.get("symbol")
         raw_price = event.get("price", 0)
 
-        # Keep SMH history as a market/sector filter.
-        # We do not trade SMH, but we use it to decide whether NVDA long trades are allowed.
         if symbol == self.hedge_symbol and raw_price > 0:
             self.hedge_price_history.append(raw_price)
 
@@ -178,20 +161,16 @@ class MasterEnsemble:
         timestamp = event["timestamp"]
         self.price_history.append(current_price)
 
-        # 🚨 UPDATED: REGIME SAMPLING LOGIC (Returns-Based)
-        # Sample the price every 60,000 milliseconds (1 minute)
+        # regime sampling
         if timestamp - self.last_sample_time >= 300000:
             if self.last_sampled_price is not None:
-                # Calculate the exact percentage return over the last minute
                 pct_return = (current_price - self.last_sampled_price) / self.last_sampled_price
                 self.rolling_returns.append(pct_return)
             
             self.last_sampled_price = current_price
             self.last_sample_time = timestamp
             
-            # Calculate Regime if we have enough data (at least 30 mins to start guessing)
             if len(self.rolling_returns) >= 10:
-                # Calculate Standard Deviation of the returns, multiply by 100 to make it a percentage
                 current_vol_pct = np.std(self.rolling_returns) * 100 
                 
                 if current_vol_pct >= self.regime_vol_threshold:
@@ -200,22 +179,19 @@ class MasterEnsemble:
                     self.current_regime = "CHOP"
 
 
-        # 🚨 UPDATED: INPUT CLAMPING & MASTER EQUATION (Critique #1)
-        # We must clip the inputs at the source before they hit the Master Equation
+        # input clamping + master score calculation
         z_val = float(np.clip(zs_vote.get("confidence", 0.0), -1.0, 1.0))
         m_val = float(np.clip(mo_vote.get("confidence", 0.0), -1.0, 1.0))
         self.momentum_history.append(m_val)
         self.log(f"[DEBUG] momentum={m_val:.3f}")
         obi_val = float(np.clip(obi_vote.get("confidence", 0.0), -1.0, 1.0))
 
-        # Veto Z-score signals that trade against the macro trend direction.
-        # z_val < 0 = Z-score wants SHORT (spread above mean); z_val > 0 = wants LONG.
-        # Only applied in TREND regime — in CHOP, mean reversion fires freely.
+        # veto logic
         if self.current_regime == "TREND" and len(self.rolling_returns) > 1:
             trend_direction = np.mean(self.rolling_returns)
-            if trend_direction > 0 and z_val < 0:   # uptrend: block Z-score shorts
+            if trend_direction > 0 and z_val < 0:   # uptrend -> block Z-score shorts
                 z_val = 0.0
-            elif trend_direction < 0 and z_val > 0:  # downtrend: block Z-score longs
+            elif trend_direction < 0 and z_val > 0:  # downtrend -> block Z-score longs
                 z_val = 0.0
 
         if self.current_regime == "TREND":
@@ -235,7 +211,7 @@ class MasterEnsemble:
         
         ensemble_signal = "HOLD"
         
-        # --- 2. POSITION MANAGEMENT ---
+        # POSITION MANAGEMENT!!!
         if self.position.is_active:
             self.position.bars_held += 1
 
@@ -284,7 +260,7 @@ class MasterEnsemble:
                 ensemble_signal = "EXIT"
                 exit_reason = f"BREAKEVEN_PROTECT pnl={pnl_pct*100:.2f}%"
 
-            # 4. Trailing stop, after trade has moved at least 1R in our favor.
+            # trailing stop
             if (
                 ensemble_signal != "EXIT" and
                 self.position.bars_held >= self.min_hold_bars and
@@ -294,12 +270,12 @@ class MasterEnsemble:
                 ensemble_signal = "EXIT"
                 exit_reason = f"TRAILING_STOP giveback={giveback*100:.2f}%"
 
-            # 3. Time exit
+            # time exit
             elif self.position.bars_held >= self.max_hold_bars:
                 ensemble_signal = "EXIT"
                 exit_reason = "TIME_LIMIT"
 
-            # 4. Strong reversal exit, requires 2 consecutive opposite bars
+            # strong reversal exit
             if ensemble_signal != "EXIT" and self.position.bars_held >= self.min_hold_bars:
                 exit_threshold = 0.20
 
@@ -344,7 +320,7 @@ class MasterEnsemble:
                 }
                 
         
-        # --- 3. ENTRY TOURNAMENT (LONG & SHORT) ---
+        # ENTRY LOGIC (long + short) !!!
         elif not self.position.is_active:
             
             if timestamp - self.last_exit_time < self.cooldown_ms:
@@ -359,14 +335,6 @@ class MasterEnsemble:
                 self.log(f"[SKIP] WARMUP | returns={len(self.rolling_returns)}")
                 return None
 
-            # FINAL VERSION:
-            # Trade only directional TREND regimes.
-            # Do not trade CHOP because NVDA/SMH mean reversion is too noisy here.
-            # if self.current_regime != "TREND":
-            #     self.log(f"[SKIP] CHOP disabled | regime={self.current_regime}")
-            #     return None
-
-            # Need enough history for filters
             if len(self.price_history) < 20 or len(self.hedge_price_history) < 20 or len(self.rolling_returns) < 20:
                 self.log(
                     f"[SKIP] not enough filter history | "
@@ -404,11 +372,6 @@ class MasterEnsemble:
                 all(s >= self.entry_threshold for s in self.score_history) and
                 recent_3bar_return <= max_chase_pct
             )
-
-            # FINAL SALVAGE DECISION:
-            # No shorts. NVDA has strong upward drift in this dataset.
-            # Shorting is what turns this from a momentum follower into an overtrading machine.
-            short_confirmed = False
 
             self.log(
                 f"[ENTRY CHECK] score={master_score:.2f} | m={m_val:.2f} | z={z_val:.2f} | "

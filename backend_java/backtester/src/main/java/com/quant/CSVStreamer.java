@@ -50,7 +50,9 @@ public class CSVStreamer {
                     if (isHeader) { isHeader = false; continue; }
                     
                     String[] values = line.split(",");
-                    if (values.length < 5) continue; // skip broken rows
+
+                    if (isMicroQuote && values.length < 5) continue; 
+                    if (!isMicroQuote && values.length < 6) continue;
                     
                     long timestamp;
                     try {

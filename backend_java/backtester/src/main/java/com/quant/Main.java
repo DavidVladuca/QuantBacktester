@@ -77,7 +77,8 @@ public class Main {
             e.printStackTrace();
         }
 
-        boolean IS_BACKTEST_MODE = false; 
+        boolean IS_BACKTEST_MODE = true; // set to false for live trading
+        int LIVE_BAR_TIMEFRAME_MINUTES = 5;
         
         // here add your files for backtesting
         String[] csvFiles = {
@@ -99,7 +100,9 @@ public class Main {
         }
 
         Portfolio portfolio = new Portfolio(10000.0, bConfig.commission_rate, bConfig.slippage_rate);
-        ExecutionGateway gateway = IS_BACKTEST_MODE ? new SimulatedGateway() : new AlpacaGateway();
+        ExecutionGateway gateway = IS_BACKTEST_MODE
+            ? new SimulatedGateway(bConfig.commission_rate, bConfig.slippage_rate)
+            : new AlpacaGateway();
 
         Map<String, Double> finalPrices = new HashMap<>(); 
         Map<String, Double> beginningPrices = new HashMap<>();
@@ -130,7 +133,8 @@ public class Main {
                 AlpacaRESTFetcher hydrator = new AlpacaRESTFetcher(
                     eventQueue,
                     tickers,
-                    tickers.length * barsPerStock
+                    barsPerStock,
+                    LIVE_BAR_TIMEFRAME_MINUTES
                 );
 
                 new Thread(() -> hydrator.start()).start();
@@ -156,7 +160,7 @@ public class Main {
 
                     isHydrating = false;
 
-                    LiveMarketStreamer streamer = new LiveMarketStreamer(eventQueue, tickers);
+                    LiveMarketStreamer streamer = new LiveMarketStreamer(eventQueue, tickers, LIVE_BAR_TIMEFRAME_MINUTES);
                     new Thread(() -> streamer.start()).start();
 
                     continue;
