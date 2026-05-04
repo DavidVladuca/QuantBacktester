@@ -3,7 +3,7 @@ import numpy as np
 from collections import deque
 
 class PullbackStrategy:
-    def __init__(self, fast_period=20, slow_period=60, target_vol=0.02): # removed trail_multiplier # new
+    def __init__(self, fast_period=20, slow_period=60, target_vol=0.02): 
         self.fast_period = fast_period
         self.slow_period = slow_period
         self.target_vol = target_vol
@@ -14,8 +14,6 @@ class PullbackStrategy:
 
         # tracking variables for curl confirmation
         self.previous_price = None
-        
-        # removed internal position/risk states # new
 
     def calculate_vol_allocation(self):
         if len(self.prices) < self.fast_period:
@@ -60,22 +58,22 @@ class PullbackStrategy:
 
             dynamic_alloc, daily_vol = self.calculate_vol_allocation()
 
-            # Continuous Trend Evaluation # new
+            # continuous Trend Evaluation 
             proximity_threshold = min(max(daily_vol, 0.001), 0.005) 
             is_near_slow_sma = abs(price - slow_sma) / slow_sma <= proximity_threshold 
             min_trend = max(0.002, daily_vol * 0.5)
 
-            # Check for Pullback Setup # new
-            is_pullback_zone = fast_sma > slow_sma and slow_sma < price < fast_sma # new
+            # check for Pullback setup
+            is_pullback_zone = fast_sma > slow_sma and slow_sma < price < fast_sma 
             
-            if is_pullback_zone and is_near_slow_sma and trend_strength >= min_trend and fast_sma_slope_positive: # new
-                signal = "BUY" # new
-                allocation = dynamic_alloc # new
+            if is_pullback_zone and is_near_slow_sma and trend_strength >= min_trend and fast_sma_slope_positive: 
+                signal = "BUY" 
+                allocation = dynamic_alloc 
             
-            # Trend Breakdown Exit # new
-            elif price < slow_sma * (1.0 - daily_vol): # new
-                signal = "SELL" # new
-                allocation = 1.0 # new
+            # trend breakdown exit 
+            elif price < slow_sma * (1.0 - daily_vol): 
+                signal = "SELL" 
+                allocation = 1.0 
 
         self.previous_price = price
 

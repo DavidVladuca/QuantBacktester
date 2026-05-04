@@ -4,7 +4,7 @@ from collections import deque
 
 # Moving Average Convergence Divergence (MACD) strategy
 class MACDStrategy:
-    def __init__(self, fast_period=12, slow_period=26, signal_period=9, vol_period=20, target_vol=0.02): # removed stop_loss_pct # new
+    def __init__(self, fast_period=12, slow_period=26, signal_period=9, vol_period=20, target_vol=0.02):  
         self.fast_period = fast_period
         self.slow_period = slow_period
         self.signal_period = signal_period
@@ -16,8 +16,6 @@ class MACDStrategy:
         # EMA = Exponential Moving Average
         self.max_window = max(100, self.vol_period + 1)
         self.prices = deque(maxlen=self.max_window)
-        
-        # removed internal position/risk states # new
 
     def calculate_ema_array(self, data, window):
         alpha = 2 / (window + 1)
@@ -85,22 +83,22 @@ class MACDStrategy:
             current_macd, current_signal, prev_macd, prev_signal = self.calculate_macd()
             dynamic_alloc = self.calculate_vol_allocation()
 
-            if current_macd is not None: # new
-                # Continuous Bullish Momentum Stance # new
-                if current_macd > current_signal: # new
-                    signal = "BUY" # new
-                    allocation = dynamic_alloc # new
+            if current_macd is not None: 
+                # continuous Bullish Momentum Stance 
+                if current_macd > current_signal: 
+                    signal = "BUY" 
+                    allocation = dynamic_alloc 
                 
-                # Continuous Bearish Momentum Stance # new
-                elif current_macd < current_signal: # new
-                    signal = "SELL" # new
-                    allocation = 1.0 # new
+                # continuous Bearish Momentum Stance 
+                elif current_macd < current_signal: 
+                    signal = "SELL" 
+                    allocation = 1.0 
 
         # final allocation
         if signal == "BUY":
             final_allocation = round(max(0.1, allocation), 4) # clamped min 10%
-        elif signal == "SELL": # new
-            final_allocation = allocation # new
+        elif signal == "SELL": 
+            final_allocation = allocation 
         else:
             final_allocation = 0.0
 

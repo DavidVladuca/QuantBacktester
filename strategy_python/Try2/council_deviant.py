@@ -1,6 +1,11 @@
 import numpy as np
 from collections import deque
 
+# DEVIANT = VWAP mean-reversion strategy that:
+# - calculates rolling VWAP as fair value
+# - measures price deviation with a rolling z-score
+# - buys only when price is deeply below VWAP
+# - requires the price to start curling upward before entry
 class DeviantStrategy:
     def __init__(self, vwap_period=60, entry_z_score=-2.5, abort_z_score=-3.5):
         self.vwap_period = vwap_period
@@ -10,9 +15,11 @@ class DeviantStrategy:
         self.prices = deque(maxlen=self.vwap_period)
         self.volumes = deque(maxlen=self.vwap_period)
         
-        # O(1) State Tracking
-        self.sum_pv = 0.0  # Sum of (Price * Volume)
-        self.sum_vol = 0.0 # Sum of Volume
+        # O(1) VWAP state
+        self.sum_pv = 0.0
+        self.sum_vol = 0.0
+
+        # O(1) price variance state
         self.sum_price = 0.0
         self.sum_sq_price = 0.0
 
@@ -22,7 +29,7 @@ class DeviantStrategy:
         symbol, timestamp, price = event["symbol"], event["timestamp"], event["price"]
         volume = event.get("volume", 0)
 
-        # --- 1. O(1) MATH UPDATES ---
+        # update rolling price, volume, and variance state in O(1)
         if len(self.prices) == self.vwap_period:
             oldest_price = self.prices[0]
             oldest_vol = self.volumes[0]
@@ -40,7 +47,7 @@ class DeviantStrategy:
         self.sum_price += price
         self.sum_sq_price += (price ** 2)
 
-        # --- 2. SIGNAL GENERATION ---
+        # signal generation
         signal = "HOLD"
         allocation = 0.0
         vwap = price
@@ -48,13 +55,13 @@ class DeviantStrategy:
 
         if len(self.prices) == self.vwap_period:
             
-            # O(1) Rolling VWAP
+            # rolling VWAP
             if self.sum_vol > 0:
                 vwap = self.sum_pv / self.sum_vol
             else:
                 vwap = self.sum_price / self.vwap_period
                 
-            # O(1) Rolling Z-Score
+            # rolling z-score
             n = self.vwap_period
             variance = (self.sum_sq_price - ((self.sum_price ** 2) / n)) / n
             price_std = np.sqrt(max(0, variance))

@@ -2,7 +2,7 @@ import zmq
 import json
 import time
 
-from strategy_ensemble import MasterEnsemble
+from Try3.strategy_ensemble import MasterEnsemble # or your trading bot
 
 def start_strategy(strategy_class):
     # setup (REP = Reply, Listen on port 5555)
@@ -16,16 +16,13 @@ def start_strategy(strategy_class):
     print(f"Python Bridge listening on port 5555... (Press Ctrl+C to stop)")
     print(f"Active Strategy: {strategy_class.__name__} (GLOBAL INSTANCE)")
 
-    # 🚨 INSTANTIATE EXACTLY ONCE (The Chief Risk Officer)
     master_bot = strategy_class()
-
     while True:
         try:
             message = socket.recv_string()
             event = json.loads(message)
             
             if event.get("type") == "MARKET_DATA":
-                # Route ALL symbols through the single global instance
                 response_dict = master_bot.process_event(event)
                 
                 if response_dict:

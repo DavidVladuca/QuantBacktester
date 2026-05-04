@@ -45,7 +45,7 @@ public class LiveMarketStreamer implements WebSocket.Listener {
 
     @Override 
     public void onOpen(WebSocket webSocket) { 
-        System.out.println("  [WEBSOCKET] Connected to Alpaca Crypto Market Data!"); 
+        System.out.println("  [WEBSOCKET] Connected to Alpaca Stock Market Data!");
         String authMsg = "{\"action\": \"auth\", \"key\": \"" + apiKey + "\", \"secret\": \"" + apiSecret + "\"}"; 
         webSocket.sendText(authMsg, true); 
         WebSocket.Listener.super.onOpen(webSocket); 
@@ -66,14 +66,13 @@ public class LiveMarketStreamer implements WebSocket.Listener {
                     
                     if (obj.has("T") && obj.get("T").getAsString().equals("success") && obj.has("msg")) { 
                         if (obj.get("msg").getAsString().equals("authenticated")) { 
-                            System.out.println("  [WEBSOCKET] Authenticated. Subscribing to Live Trades..."); 
+                            System.out.println("  [WEBSOCKET] Authenticated. Subscribing to Live Bars...");
                             
-                            // Dynamically build the subscription string for the tickers
+                            // dynamically build the subscription string for the tickers
                             String symbolsList = Arrays.stream(tickers)
                                                        .map(t -> "\"" + t + "\"")
                                                        .collect(Collectors.joining(","));
                             
-                            // Subscribe to TRADES instead of BARS
                             String subMsg = "{\"action\": \"subscribe\", \"bars\": [" + symbolsList + "]}";  
                             webSocket.sendText(subMsg, true); 
                         } 
@@ -81,21 +80,41 @@ public class LiveMarketStreamer implements WebSocket.Listener {
                     
                     else if (obj.has("T") && obj.get("T").getAsString().equals("b")) { 
                         String symbol = obj.get("S").getAsString(); 
-                        double price = obj.get("c").getAsDouble(); // 'c' is close price of the minute
-                        double high = obj.get("h").getAsDouble();  // 'h' is high of the minute
-                        double low = obj.get("l").getAsDouble();   // 'l' is low of the minute
-                        double volume = obj.get("v").getAsDouble(); // 'v' is volume of the minute
-                        
-                        // Alpaca bar timestamps are RFC-3339 strings
+                        double price = obj.get("c").getAsDouble();
+                        double high = obj.get("h").getAsDouble();
+                        double low = obj.get("l").getAsDouble();
+                        double volume = obj.get("v").getAsDouble();
+
                         long timestamp = Instant.parse(obj.get("t").getAsString()).toEpochMilli(); 
-                        
-                        // Pass the fully formed minute bar to Python
-                        //Main.MarketEvent event = new Main.MarketEvent("MARKET_DATA", symbol, timestamp, price, high, low, volume);
-                        //eventQueue.put(event); 
+
+                        Main.MarketEvent event = new Main.MarketEvent(
+                            "MARKET_DATA",
+                            symbol,
+                            timestamp,
+                            price,
+                            high,
+                            low,
+                            volume,
+                            0,
+                            0,
+                            0,
+                            0
+                        );
+
+                        System.out.println(
+                            "[ALPACA BAR] " + symbol +
+                            " | price=" + price +
+                            " | high=" + high +
+                            " | low=" + low +
+                            " | volume=" + volume
+                        );
+
+                        eventQueue.put(event);
                     }
                 } 
             } catch (Exception e) { 
-                // Ignore parsing errors for control messages
+                System.err.println("[WEBSOCKET PARSE ERROR] " + e.getMessage());
+                System.err.println("[RAW MESSAGE] " + message);
             } 
         } 
         return WebSocket.Listener.super.onText(webSocket, data, last); 

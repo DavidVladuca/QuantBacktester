@@ -18,14 +18,13 @@ public class AlpacaRESTFetcher {
     private final String[] tickers;
     private final int limit;
 
-    private static final String API_KEY = "PK6K327V6HYGMYA7O6I5MJETF4";
-    private static final String API_SECRET = "HvCToFK4qYUvTxzRwNqfyqMDbJQctvZLRHjL4mzcfRKt";
+    private final String apiKey;
+    private final String apiSecret;
     
-    // Alpaca Market Data endpoint (v2)
+    // Alpaca Market Data endpoint 
     private static final String BASE_URL = "https://data.alpaca.markets/v2/stocks/bars";
-    // private static final String BASE_URL = "https://data.alpaca.markets/v1beta3/crypto/us/bars";
 
-    // --- GSON Data Transfer Objects (DTOs) for Alpaca's JSON structure ---
+    // GSON Data Transfer Objects (DTOs) for Alpaca's JSON structure
     public static class AlpacaResponse {
         public Map<String, List<AlpacaBar>> bars;
     }
@@ -42,8 +41,17 @@ public class AlpacaRESTFetcher {
     public AlpacaRESTFetcher(BlockingQueue<Main.MarketEvent> eventQueue, String[] tickers, int limit) {
         this.eventQueue = eventQueue;
         this.tickers = tickers;
-        this.limit = limit; // How many bars to fetch (e.g. 100)
-    }
+        this.limit = limit;
+
+        try (java.io.FileInputStream fis = new java.io.FileInputStream("config.properties")) {
+            java.util.Properties prop = new java.util.Properties();
+            prop.load(fis);
+            this.apiKey = prop.getProperty("alpaca.key");
+            this.apiSecret = prop.getProperty("alpaca.secret");
+        } catch (Exception e) {
+            throw new RuntimeException("Could not load Alpaca API keys for REST hydration: " + e.getMessage());
+        }
+}
 
     public void start() {
         try {
@@ -54,14 +62,12 @@ public class AlpacaRESTFetcher {
             for (String ticker : tickers) {
                 System.out.println("[REST FETCHER] Fetching warmup data for: " + ticker);
                 
-                // Encode the symbol (handles the '/' in BTC/USD)
                 String encodedTicker = java.net.URLEncoder.encode(ticker, java.nio.charset.StandardCharsets.UTF_8);
-                String url = String.format("%s?symbols=%s&timeframe=1Min&limit=%d", BASE_URL, encodedTicker, limit);
-
+                String url = String.format("%s?symbols=%s&timeframe=5Min&limit=%d", BASE_URL, encodedTicker, limit);
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
-                        .header("APCA-API-KEY-ID", API_KEY)
-                        .header("APCA-API-SECRET-KEY", API_SECRET)
+                        .header("APCA-API-KEY-ID", apiKey)
+                        .header("APCA-API-SECRET-KEY", apiSecret)
                         .GET().build();
 
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -74,7 +80,20 @@ public class AlpacaRESTFetcher {
                         
                         for (AlpacaBar bar : bars) {
                             long ts = java.time.Instant.parse(bar.t).toEpochMilli();
-                            //historicalEvents.add(new Main.MarketEvent("MARKET_DATA", ticker, ts, bar.c, bar.h, bar.l, bar.v));
+
+                            historicalEvents.add(new Main.MarketEvent(
+                                "MARKET_DATA",
+                                ticker,
+                                ts,
+                                bar.c,
+                                bar.h,
+                                bar.l,
+                                bar.v,
+                                0,
+                                0,
+                                0,
+                                0
+                            ));
                         }
                     }
                 } else {
@@ -82,7 +101,7 @@ public class AlpacaRESTFetcher {
                 }
             }
 
-            // Chronologically sort the combined list so Python sees the market move in order
+            // chronologically sort the combined list so Python sees the market move in order
             historicalEvents.sort(java.util.Comparator.comparingLong(Main.MarketEvent::getTimestamp));
 
             for (Main.MarketEvent event : historicalEvents) {
@@ -90,8 +109,19 @@ public class AlpacaRESTFetcher {
             }
 
             System.out.println("[REST FETCHER] Total Hydration complete. Ingested " + historicalEvents.size() + " bars.");
-            //eventQueue.put(new Main.MarketEvent("HYDRATION_COMPLETE", "SYSTEM", Long.MAX_VALUE, 0, 0, 0, 0));
-
+            eventQueue.put(new Main.MarketEvent(
+                "HYDRATION_COMPLETE",
+                "SYSTEM",
+                Long.MAX_VALUE,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+            ));
         } catch (Exception e) {
             e.printStackTrace();
         }

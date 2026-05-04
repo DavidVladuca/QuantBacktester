@@ -12,7 +12,7 @@ public class Portfolio {
     private final double DRY_POWDER_RATIO = 0.25; 
     private Map<String, Double> lastKnownPrices; 
 
-    // Market Friction Models — injected from config.json so grid search can sweep them
+    // market friction 
     private final double commissionRate;
     private final double slippageRate;
     private double totalFeesPaid = 0.0;
@@ -41,12 +41,11 @@ public class Portfolio {
         return equity;
     }
 
-    // 🚨 NEW: Calculates absolute exposure (Margin Used) for both Longs and Shorts
     private double getCurrentlyDeployed() {
         double deployed = 0.0;
         for (Map.Entry<String, Double> position : positions.entrySet()) {
             String sym = position.getKey();
-            double shares = Math.abs(position.getValue()); // Absolute value is the secret!
+            double shares = Math.abs(position.getValue()); 
             double currentPrice = lastKnownPrices.getOrDefault(sym, 0.0);
             deployed += (shares * currentPrice);
         }
@@ -58,19 +57,19 @@ public class Portfolio {
         double currentShares = positions.getOrDefault(symbol, 0.0);
         double targetShares = quantity;
         
-        if (targetShares <= 0) return null; // Safety check
+        if (targetShares <= 0) return null; // safety check
 
-        // --- INITIATE NEW POSITIONS (LONG OR SHORT) ---
+        // initiate a new position (short/long)
         if (signal.equals("BUY") || signal.equals("SELL")) { 
             
-            // Java Safety Net: Ensure we actually have the buying power Python thinks we have
+            // check we have the buying power the bot thinks we have
             double maxAllowedDeployed = getTotalEquity() * (1.0 - DRY_POWDER_RATIO); 
             double currentlyDeployed = getCurrentlyDeployed();
             double availableToDeploy = Math.max(0, maxAllowedDeployed - currentlyDeployed);
             
             double capitalRequired = targetShares * price;
 
-            // If Python's calculated shares exceed Java's actual available cash, clamp it down
+            // clamp order size
             if (capitalRequired > availableToDeploy) {
                 targetShares = availableToDeploy / price;
             }
@@ -82,9 +81,9 @@ public class Portfolio {
             }
         } 
         
-        // --- CLOSING POSITIONS ---
+        // closing positions
         else if (signal.equals("SELL_TO_CLOSE") && currentShares > 0) { 
-            // Safety: Ensure we don't sell more than we own
+            // check we dont sell more than we own
             double sharesToSell = Math.min(targetShares, currentShares);
             if (sharesToSell > 0) {
                 String orderId = java.util.UUID.randomUUID().toString();
@@ -92,7 +91,7 @@ public class Portfolio {
             }
         }
         else if (signal.equals("BUY_TO_COVER") && currentShares < 0) { 
-            // Safety: Ensure we don't cover more than we are short
+            // check we dont buy more than we need to cover for the short
             double sharesToBuy = Math.min(targetShares, Math.abs(currentShares));
             if (sharesToBuy > 0) {
                 String orderId = java.util.UUID.randomUUID().toString();
@@ -109,7 +108,7 @@ public class Portfolio {
             double fillPrice = order.getExecutionPrice();
             double fees = order.getFeesPaid();
 
-            // Simulate Friction
+            // simulate friction
             if (fillPrice == 0.0) {
                 fillPrice = (order.getSide() == Order.Side.BUY) ?
                             order.getLimitPrice() * (1 + slippageRate) :

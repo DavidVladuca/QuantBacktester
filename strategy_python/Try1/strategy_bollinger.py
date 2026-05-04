@@ -3,14 +3,13 @@ import numpy as np
 from collections import deque
 
 class BollingerStrategy:
-    def __init__(self, period=20, std_dev_multiplier=2.0, target_vol=0.02): # removed stop_loss_pct # new
+    def __init__(self, period=20, std_dev_multiplier=2.0, target_vol=0.02): 
         self.period = period
         self.std_dev_multiplier = std_dev_multiplier
         self.target_vol = target_vol
         
         self.prices = deque(maxlen=self.period)
-        
-        # removed internal position/risk states # new
+
 
     def calculate_vol_allocation(self):
         if len(self.prices) < self.period:
@@ -51,21 +50,21 @@ class BollingerStrategy:
 
             dynamic_alloc = self.calculate_vol_allocation()
 
-            # Continuous Bollinger Band Stances # new
+            # continuous Bollinger Band Stances
             # price is unusually low -> expect it to bounce back
-            if price < lower_band: # new
+            if price < lower_band: 
                 signal = "BUY"
                 allocation = dynamic_alloc
 
             # price is unusually high -> expect it to fall back
-            elif price > upper_band: # new
+            elif price > upper_band: 
                 signal = "SELL"
-                allocation = 1.0 # new
+                allocation = 1.0 
 
         if signal == "BUY":
             final_allocation = round(max(0.1, allocation), 4)
-        elif signal == "SELL": # new
-            final_allocation = allocation # new
+        elif signal == "SELL": 
+            final_allocation = allocation 
         else:
             final_allocation = 0.0
 

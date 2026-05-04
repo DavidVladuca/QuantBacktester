@@ -1,10 +1,16 @@
 import numpy as np
 from collections import deque
 
+# BREAKOUT = compression breakout strategy that:
+# - builds a short-term consolidation box from recent prices
+# - checks that volatility/range has contracted
+# - requires two confirmed closes above the breakout threshold
+# - outputs BUY only when the breakout clears noise
 class BreakoutStrategy:
     def __init__(self, lookback_period=15):
         self.lookback_period = lookback_period
-        # We store 15 periods for the box, PLUS 2 periods for the confirmation hold
+
+        # store box window + 2 confirmation prices
         self.prices = deque(maxlen=self.lookback_period + 2)
 
     def process_event(self, event):
@@ -23,31 +29,26 @@ class BreakoutStrategy:
 
         if len(self.prices) == self.lookback_period + 2:
             
-            # --- 1. DEFINE THE CONSOLIDATION BOX ---
-            # Slice the first 15 periods to define our local ceiling and floor
+            # define consolidation box
             box_history = list(self.prices)[:self.lookback_period]
             local_high = max(box_history)
             local_low = min(box_history)
             channel_range = local_high - local_low
             
-            # Structural Abort: Mid-point of the old box
+            # midpoint used as possible failed-breakout abort level
             bull_trap_level = local_high - (channel_range * 0.5)
             
-            # Condition A: Volatility Contraction
+            # require tight range before accepting breakout
             is_coiled = channel_range > 0 and channel_range < (price * 0.005)
             
-            # --- 2. UPGRADED BREAKOUT MATH ---
-            
-            # Dynamic Threshold: Must clear by 20% of the box height, OR 5 basis points (whichever is larger)
-            # This protects against micro-spread noise in ultra-tight ranges.
+            # require breakout to clear box noise
             min_break = max(channel_range * 0.20, price * 0.0005)
             
-            # Condition B: Two-Tick Confirmation (Anti-Wick)
-            # We look at the 2 most recent prices. BOTH must be firmly above the dynamic threshold.
+            # require both latest prices above breakout level
             recent_prices = list(self.prices)[-2:]
             is_breaking_out = all(p > (local_high + min_break) for p in recent_prices)
 
-            # --- 3. SIGNAL GENERATION ---
+            # signal generation
             if is_coiled and is_breaking_out:
                 signal = "BUY"
                 allocation = 1.0

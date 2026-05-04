@@ -1,6 +1,11 @@
 import numpy as np
 from collections import deque
 
+# DETECTIVE = confirmation/veto strategy that:
+# - measures recent price move strength
+# - compares current volume against average volume
+# - checks candle control inside the high-low range
+# - confirms or vetoes directional moves based on conviction
 class DetectiveStrategy:
     def __init__(self, vol_window=20, conviction_threshold=1.8):
         self.vol_window = vol_window
@@ -9,8 +14,10 @@ class DetectiveStrategy:
         self.prices = deque(maxlen=self.vol_window)
         self.volumes = deque(maxlen=self.vol_window)
         
-        # O(1) State Tracking
+        # O(1) volume state
         self.sum_vol = 0.0
+
+        # O(1) volatility state
         self.prev_price = None
         self.returns = deque(maxlen=self.vol_window - 1)
         self.sum_returns = 0.0
@@ -23,13 +30,13 @@ class DetectiveStrategy:
         high, low = event.get("high", price), event.get("low", price)
         volume = event.get("volume", 0)
 
-        # --- 1. O(1) VOLUME UPDATE ---
+        # update volume in O(1)
         if len(self.volumes) == self.vol_window:
             self.sum_vol -= self.volumes[0]
         self.volumes.append(volume)
         self.sum_vol += volume
 
-        # --- 2. O(1) RETURNS UPDATE ---
+        # compute returns and volatility in O(1)
         if self.prev_price is not None:
             current_return = (price - self.prev_price) / self.prev_price
             if len(self.returns) == self.vol_window - 1:
@@ -51,26 +58,31 @@ class DetectiveStrategy:
         if len(self.prices) >= 10 and len(self.volumes) == self.vol_window:
             avg_vol = self.sum_vol / self.vol_window
             
-            # O(1) Volatility Calculation
+            # volatility threshold
             n_returns = len(self.returns)
             variance = (self.sum_sq_returns - ((self.sum_returns ** 2) / n_returns)) / n_returns
             vol_threshold = max(np.sqrt(max(0, variance)) * 2, 0.001)
             effective_vol = max(vol_threshold, 0.0005)
 
+            # recent directional move
             price_3_bars_ago = self.prices[-3] if len(self.prices) >= 3 else self.prices[0]
             price_change_pct = (price - price_3_bars_ago) / price_3_bars_ago
             
+            # candle control inside the bar
             candle_range = high - low
             candle_position = (price - low) / candle_range if candle_range > 0 else 0.5
             candle_control = 2 * abs(candle_position - 0.5) 
             
+            # relative volume
             rvol = volume / avg_vol if avg_vol > 0 else 1.0
 
+            # conviction score combines volume, move size, and candle control
             conviction_score = min(1.0, (rvol / 2.0) * (abs(price_change_pct) / effective_vol) * candle_control)
 
             if price_change_pct > vol_threshold: direction = "BUY"
             elif price_change_pct < -vol_threshold: direction = "SELL"
 
+            # signal generation
             if abs(price_change_pct) > vol_threshold and rvol < 0.7:
                 signal = "VETO"
             elif direction != "NONE" and rvol >= self.conviction_threshold:

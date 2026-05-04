@@ -19,8 +19,6 @@ class VWAPStrategy:
         self.current_day = None
         self.cum_vol = 0.0
         self.cum_pv = 0.0
-        
-        # removed internal position/risk states # new
 
     def calculate_vol_allocation(self):
         if len(self.prices) < self.vol_window:
@@ -73,23 +71,23 @@ class VWAPStrategy:
         
         dynamic_alloc, daily_vol = self.calculate_vol_allocation() 
 
-        if len(self.prices) >= self.fast_period: # new
-            prices_array = np.array(self.prices) # new
-            fast_sma = np.mean(prices_array[-self.fast_period:]) # new
+        if len(self.prices) >= self.fast_period: 
+            prices_array = np.array(self.prices) 
+            fast_sma = np.mean(prices_array[-self.fast_period:]) 
             
-            # Structural Regime Shift Exit (VWAP Breakdown) - Now a continuous SELL state # new
+            # VWAP Breakdown 
             if price < vwap * (1.0 - daily_vol): 
                 signal = "SELL" 
                 allocation = 1.0 
                 
-            # VWAP Pullback / Bullish Regime - Now a continuous BUY state # new
-            else: # new
+            # VWAP Pullback 
+            else: 
                 trend_strength = (fast_sma - vwap) / vwap if vwap > 0 else 0 
                 trend_up = trend_strength >= 0.0015 and price >= vwap 
                 
-                if trend_up: # new
-                    signal = "BUY" # new
-                    allocation = dynamic_alloc # new
+                if trend_up: 
+                    signal = "BUY" 
+                    allocation = dynamic_alloc 
 
         self.previous_price = price
 

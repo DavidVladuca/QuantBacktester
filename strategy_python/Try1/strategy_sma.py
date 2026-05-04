@@ -3,7 +3,7 @@ from collections import deque
 import statistics
 
 class SMAStrategy:
-    def __init__(self, fast_window=3, slow_window=25, target_vol=0.02): # removed trailing_stop_pct # new
+    def __init__(self, fast_window=3, slow_window=25, target_vol=0.02): 
         # rolling window setup 
         self.SLOW_WINDOW = slow_window
         self.FAST_WINDOW = fast_window
@@ -15,8 +15,6 @@ class SMAStrategy:
         # strategy states
         self.prev_fast_sma = None
         self.prev_slow_sma = None
-        
-        # removed internal position/risk states # new
 
     def process_event(self, event):
         # extract the important fields
@@ -59,15 +57,15 @@ class SMAStrategy:
             # clamp the allocation [10%, 100%]
             buy_allocation = max(0.1, min(1.0, dynamic_alloc))
 
-            # continuous stance evaluation (replaced discrete crossover) # new
-            if fast_sma > slow_sma: # new
-                signal = "BUY" # new
-                allocation = buy_allocation # new
-            elif fast_sma < slow_sma: # new
-                signal = "SELL" # new
-                allocation = 1.0 # new
+            # continuous stance evaluation (replaced discrete crossover) 
+            if fast_sma > slow_sma: 
+                signal = "BUY" 
+                allocation = buy_allocation 
+            elif fast_sma < slow_sma: 
+                signal = "SELL" 
+                allocation = 1.0 
 
-            # remember yesterday values (kept for continuity, though no longer used for crosses)
+            # remember yesterday values 
             self.prev_fast_sma = fast_sma
             self.prev_slow_sma = slow_sma
 

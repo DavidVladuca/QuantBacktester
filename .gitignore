@@ -16,11 +16,14 @@ backend_java/build/
 # Configuration files
 **/config.properties    
 
+# CLAUDE.md
+**/CLAUDE.md
+
 # Ignore data files
-# *.csv
+*.csv
 # Ignore Python and Java log files
 *.txt
 *.log
 # Ignore configuration and results
-strategy_python/config.json
-strategy_python/grid_search_results*.csv
+# strategy_python/config.json
+# strategy_python/grid_search_results*.csv

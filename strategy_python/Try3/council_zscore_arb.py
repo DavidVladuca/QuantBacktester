@@ -2,8 +2,8 @@ import numpy as np
 from collections import deque
 
 class ZScoreArbStrategy:
-    def __init__(self, target_symbol, hedge_symbol, window_ms=3600000,
-                 bucket_interval_ms=60000, entry_threshold=2.0, exit_threshold=0.2):
+    def __init__(self, target_symbol, hedge_symbol, window_ms=14400000,
+                 bucket_interval_ms=300000, entry_threshold=2.0, exit_threshold=0.2):
         self.target_symbol = target_symbol
         self.hedge_symbol = hedge_symbol
         self.window_ms = window_ms
@@ -16,7 +16,7 @@ class ZScoreArbStrategy:
         self.spread_history = deque()  # (timestamp, spread) tuples
         self.last_bucket_time = 0
 
-        # Running sums allow O(1) mean and variance on every tick
+        # used for mean and variance in O(1)
         self.sum_spread = 0.0
         self.sum_sq_spread = 0.0
 
@@ -40,15 +40,13 @@ class ZScoreArbStrategy:
         hedge_price = self.last_prices[self.hedge_symbol]
         current_spread = np.log(target_price) - np.log(hedge_price)
 
-        # Prune entries that have aged out of the window, keeping running sums exact
+        # prune entries
         cutoff = timestamp - self.window_ms
         while self.spread_history and self.spread_history[0][0] < cutoff:
             _, old_spread = self.spread_history.popleft()
             self.sum_spread -= old_spread
             self.sum_sq_spread -= old_spread ** 2
 
-        # Append one bucket sample per bucket_interval_ms — keeps points statistically
-        # independent and limits the deque to ~60 entries over a 60-minute window
         if timestamp - self.last_bucket_time >= self.bucket_interval_ms:
             self.spread_history.append((timestamp, current_spread))
             self.sum_spread += current_spread
@@ -57,10 +55,10 @@ class ZScoreArbStrategy:
 
         z_score = 0.0
         n = len(self.spread_history)
-        if n >= 2:
+        if n >= 10:
             mean = self.sum_spread / n
-            # Computational form of variance: E[X²] − (E[X])²
-            variance = (self.sum_sq_spread / n) - (mean ** 2)
+            # sample variance with correction
+            variance = ((self.sum_sq_spread / n) - (mean ** 2)) * n / (n - 1)
             std = np.sqrt(max(1e-9, variance))
             z_score = (current_spread - mean) / std
 

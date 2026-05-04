@@ -16,8 +16,6 @@ class RSIStrategy:
         self.max_window = max(self.rsi_period + 1, self.vol_period + 1, self.slow_period)
         self.prices = deque(maxlen=self.max_window)
 
-        # removed internal position/risk states # new
-
     def calculate_rsi(self):
         if len(self.prices) < self.rsi_period + 1:
             return None
@@ -76,22 +74,22 @@ class RSIStrategy:
             
             trend_strength = (price - slow_sma) / slow_sma 
             
-            if rsi is not None: # new
+            if rsi is not None: 
                 
-                # Continuous Oversold Condition # new
-                rsi_condition = rsi <= self.oversold # new
+                # continuous Oversold Condition 
+                rsi_condition = rsi <= self.oversold 
                 
                 # trend condition based on input 
                 trend_condition = (trend_strength >= 0.002) if self.require_trend else True
                 
-                if rsi_condition and trend_condition: # new
+                if rsi_condition and trend_condition: 
                     signal = "BUY"
                     allocation = dynamic_alloc
                 
-                # Overbought Exit Condition # new
-                elif rsi >= 70: # new
-                    signal = "SELL" # new
-                    allocation = 1.0 # new
+                # overbought exit condition 
+                elif rsi >= 70: 
+                    signal = "SELL" 
+                    allocation = 1.0 
         
         if signal == "BUY":
             final_allocation = round(max(0.1, allocation), 4) 
