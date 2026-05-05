@@ -1,12 +1,37 @@
-# Quant Backtester & Strategy Ensemble
+# Quant Backtester
 
-## Short Description
+## Overview
 
-This project is an event-driven Java + Python trading/backtesting system.
+Quant Backtester is an event-driven trading backtester built with a Java execution engine and a Python strategy layer. The project focuses on the backtesting infrastructure itself: market-data ingestion, chronological event replay, Java/Python strategy communication, simulated execution, portfolio accounting, logging, telemetry, and parameter-search tooling.
 
-The Java side is responsible for market-data ingestion, event ordering, order creation, execution simulation, portfolio accounting, live Alpaca integration, and final performance reporting. The Python side is responsible for strategy logic. Java sends every `MarketEvent` to Python through ZeroMQ, Python returns an order signal, and Java decides whether that signal becomes an executable order.
+The strategies included in the repository are experimental strategy drafts used to stress-test the backtester. They are not presented as production-ready or reliably profitable trading systems. The main value of the project is the engineering of the backtesting pipeline, not the trading edge of the included bots.
 
-This is not real HFT. It is an HFT-inspired / intraday event-driven architecture using 5-minute or lower-timeframe market data.
+## Table of Contents
+- [Main Features](#main-features-implemented)
+- [Architecture](#architecture)
+- [Main Components](#main-components)
+- [Strategy Experiments](#strategy-experiments)
+- [Final Active Strategy](#final-active-strategy)
+- [How to Run](#how-to-run)
+- [How to Tune](#how-to-tune)
+- [Data Tools](#data-tools)
+- [Important Checks](#important-checks-before-running)
+- [Engineering Trade-offs & Limitations](#engineering-trade-offs--limitations)
+
+## Main Features Implemented
+
+- **Event-driven Java backtester:** market data is converted into `MarketEvent` objects and processed through a queue-based engine.
+- **Chronological multi-symbol replay:** CSV data from multiple assets is merged and sorted by timestamp before being sent to the strategy.
+- **Java/Python strategy bridge:** the Java engine sends each market event to Python through ZeroMQ and receives an order signal back.
+- **Strategy warmup / hydration:** historical bars can be loaded before live streaming starts so rolling indicators and stateful strategies are initialized properly.
+- **Simulated execution with market friction:** the backtester models slippage, commission fees, execution prices, filled quantities, and total fees paid.
+- **Portfolio accounting:** tracks cash, open positions, deployed capital, fills, final account value, and comparison against a buy-and-hold benchmark.
+- **Execution abstraction:** the same engine can use either a simulated backtest gateway or an Alpaca paper/live trading gateway.
+- **Live market-data support:** Alpaca REST is used for warmup data, while Alpaca WebSocket support exists for live bar streaming.
+- **Bar aggregation:** lower-timeframe events can be grouped into fixed-size OHLCV bars.
+- **Backtest logging:** long runs are written to log files so strategy decisions, rejected orders, fills, exits, and final reports can be inspected after execution.
+- **Basic telemetry:** the engine tracks event throughput and Java-to-Python strategy round-trip latency. In local backtests, observed average latency was usually around **500-550 microseconds**, depending on workload and machine state.
+- **Research tooling:** includes scripts for downloading data, profiling market regimes, slicing stress-test days, cutting large files, and running grid-search parameter tuning.
 
 ## Architecture
 
@@ -35,6 +60,8 @@ OrderSignal response
 Portfolio -> ExecutionGateway -> Portfolio accounting
 ```
 
+The Java engine owns the simulation lifecycle. Python only handles strategy logic. This separation makes it possible to test different strategies without rewriting the event replay, execution, accounting, or reporting infrastructure.
+
 ## Main Components
 
 ### Java Backtester
@@ -44,8 +71,6 @@ Location:
 ```text
 backend_java/backtester/src/main/java/com/quant
 ```
-
-Important files:
 
 | File | Purpose |
 |---|---|
@@ -68,13 +93,11 @@ Location:
 strategy_python/
 ```
 
-Important folders:
-
 | Folder | Purpose |
 |---|---|
-| `ensemble_draft_1/` | First draft: indicator council using classic technical indicators. |
-| `ensemble_draft_2/` | Second draft: more specialized council members for trend, breakout, pullback, exhaustion, and VWAP deviation. |
-| `ensemble_active/` | Final/default strategy ensemble used for testing the backtester. |
+| `ensemble_draft_1/` | First strategy draft: indicator council using classic technical indicators. |
+| `ensemble_draft_2/` | Second strategy draft: more specialized council members for trend, breakout, pullback, exhaustion, and VWAP deviation. |
+| `ensemble_active/` | Final/default strategy ensemble used to test the backtester. |
 | `tools/` | Data download, profiling, slicing, file cutting, and grid-search utilities. |
 
 The final active strategy is in:
@@ -83,32 +106,55 @@ The final active strategy is in:
 strategy_python/ensemble_active/strategy_ensemble.py
 ```
 
-## Final Strategy Concept
+## Strategy Experiments
 
-The final strategy moved away from simple indicator voting and toward a smaller set of less-correlated experts.
+The strategy folders are kept in the repository because they document the iteration process and provide realistic test cases for the backtester. Each strategy folder has its own `README.md` with more detail.
 
-The active ensemble mainly combines:
+### `ensemble_draft_1`
+
+The first draft used a council of classic technical indicators such as SMA, MACD, RSI, Bollinger Bands, Pullback, VWAP, and ADX filtering.
+
+The weakness was correlation. Many indicators were different transformations of the same price series, so agreement between them did not provide truly independent confirmation.
+
+### `ensemble_draft_2`
+
+The second draft replaced generic indicators with more specialized members such as Anchor, Breakout, Detective, Deviant, Exhaustion Fade, and Sprinter.
+
+This version had clearer roles, but the strategies still struggled on noisy lower-timeframe data. Several members were still indirectly reacting to the same short-term price movement.
+
+### `ensemble_active`
+
+The final/default strategy moved toward less-correlated market dimensions:
+
+- relative value: NVDA versus SMH spread
+- momentum: normalized directional return strength
+- liquidity/friction: spread, book validity, commission, and slippage
+- microstructure: bid/ask imbalance, later disabled
+
+The active ensemble mainly uses:
 
 ```text
 Gatekeeper + Z-Score Arbitrage + Momentum Engine
 ```
 
-OBI Flow exists in the codebase, but in the shown final `MasterEnsemble` it is disabled by setting:
+`OBIFlowStrategy` exists in the codebase but is disabled in the final master strategy because it did not add reliable confirmation during testing.
 
-```python
-obi_vote = {"confidence": 0.0}
+## Final Active Strategy
+
+Location:
+
+```text
+strategy_python/ensemble_active/strategy_ensemble.py
 ```
-
-### Active Experts
 
 | Expert | Role |
 |---|---|
-| `Gatekeeper` | Liquidity and friction filter. Blocks trades if spread, book quality, or trading costs are unacceptable. |
-| `ZScoreArbStrategy` | Relative-value module using the log-spread between NVDA and SMH. |
-| `MomentumEngineStrategy` | Directional momentum module using rolling log returns, volatility normalization, volume adjustment, and EMA-smoothed confidence. |
-| `OBIFlowStrategy` | Order-book imbalance module. Implemented, but disabled in the final master strategy. |
+| `Gatekeeper` | Blocks trades when liquidity, spread, or friction conditions are unacceptable. |
+| `ZScoreArbStrategy` | Tracks the rolling log-spread between NVDA and SMH. |
+| `MomentumEngineStrategy` | Measures recent directional move strength normalized by volatility and adjusted by volume. |
+| `OBIFlowStrategy` | Implements order-book imbalance, but is disabled in the final ensemble. |
 
-The final strategy is conservative and long-only in the shown code. It has logic for managing short positions, but the active entry logic only opens long NVDA trades.
+The shown final strategy is long-only. Some short-position management code exists, but the active entry logic only opens long NVDA trades.
 
 ## How To Run
 
@@ -131,9 +177,7 @@ alpaca-py
 pyzmq
 ```
 
-Install Python dependencies manually or through your environment manager.
-
-Example:
+Install Python dependencies:
 
 ```bash
 pip install pandas numpy alpaca-py pyzmq
@@ -530,40 +574,15 @@ Total Fees Paid
 
 A grid-search result with better performance because the bot barely trades is not a real strategy improvement. It usually means the filters became too restrictive.
 
-## Known Limitations
+## Engineering Trade-offs & Limitations
 
-- The active strategy is very conservative and may produce few or zero trades.
-- OBI is implemented but disabled in the final master strategy.
-- The system is synchronous: Java sends one event to Python and waits for one response before continuing.
-- The CSV streamer loads all events into memory before sorting and replaying them.
-- The live WebSocket streamer has no robust reconnect logic.
-- `BarAggregator` does not flush the final unfinished bar at end-of-stream.
-- Several paths are hardcoded or relative.
-- This is a research/backtesting project, not a production trading system.
+This project is designed as a research-grade backtesting system, not production trading infrastructure. The following limitations reflect conscious trade-offs made during development:
 
-## Development Process Summary
+- **Synchronous strategy loop:** the Java engine sends one event and waits for a response from Python. This simplifies correctness and debugging, but limits throughput compared to fully asynchronous pipelines.
+- **In-memory event replay:** CSV data is fully loaded and sorted before replay. This improves determinism, but does not scale to very large datasets.
+- **Limited fault tolerance in live mode:** the WebSocket streamer does not implement robust reconnect or recovery logic.
+- **Partial feature usage in strategies:** some modules (e.g. OBI flow) are implemented but disabled because they did not demonstrate consistent performance in backtesting.
+- **Relative paths and local setup assumptions:** some components rely on project structure rather than fully portable configuration.
+- **Strategy performance is not the focus:** included strategies are experimental and primarily serve to validate the backtesting engine.
 
-### Draft 1: Indicator Council
-
-The first idea was to combine common technical indicators into a council. Strategies included SMA, MACD, RSI, Bollinger Bands, Pullback, VWAP, and an ADX filter. The assumption was that if several well-known indicators agreed, the signal would be stronger.
-
-That assumption was weak. Many indicators were correlated because they all looked at the same price history. Agreement between indicators did not mean independent confirmation.
-
-### Draft 2: Specialized Council Members
-
-The second version tried to give each council member a clearer role. Instead of generic indicators, the system used members like Anchor, Breakout, Detective, Deviant, Exhaustion Fade, and Sprinter.
-
-This was more structured. Some members were designed for trend continuation, others for mean reversion, and others for confirmation or veto. However, on noisy 1-minute data, the signals were still unstable and many members were still indirectly reacting to the same short-term price movement.
-
-### Final Version: Less-Correlated Experts
-
-The final version moved toward orthogonal market dimensions:
-
-- relative value: NVDA versus SMH spread
-- momentum: normalized directional return strength
-- liquidity/friction: spread, book validity, commission, and slippage
-- microstructure: bid/ask imbalance, later disabled
-
-The project also moved away from a broad multi-stock portfolio idea and focused on an NVDA/SMH pair. This made the system cleaner and easier to reason about.
-
-The final bot was better suited to intraday noise than the earlier drafts, but it still did not find a robust trading edge. The NVDA/SMH dependency was not strong enough, OBI did not provide useful confirmation, and grid search mostly improved results by reducing trade frequency. The final active strategy remains useful as a default bot for validating the Java backtester, execution simulator, portfolio accounting, logging, and the full Java-Python event pipeline.
+These limitations were accepted to prioritize clarity, debuggability, and iteration speed while building the core system.
