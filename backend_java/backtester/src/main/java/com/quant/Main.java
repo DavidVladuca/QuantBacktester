@@ -82,8 +82,8 @@ public class Main {
         
         // here add your files for backtesting
         String[] csvFiles = {
-            "data/NVDA_macro_1min.csv",
-            "data/SMH_macro_1min.csv"
+            "data/NVDA_macro_5min.csv",
+            "data/SMH_macro_5min.csv"
             // "data/NVDA_micro_quotes.csv",
             // "data/SMH_micro_quotes.csv"
         };
