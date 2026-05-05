@@ -82,8 +82,8 @@ public class Main {
         
         // here add your files for backtesting
         String[] csvFiles = {
-            "data/NVDA_macro_5min.csv",
-            "data/SMH_macro_5min.csv"
+            "data/NVDA_macro_1min.csv",
+            "data/SMH_macro_1min.csv"
             // "data/NVDA_micro_quotes.csv",
             // "data/SMH_micro_quotes.csv"
         };
@@ -221,16 +221,16 @@ public class Main {
                 totalLatencyMicros += latencyMicros;
                 maxLatencyMicros = Math.max(maxLatencyMicros, latencyMicros);
 
-                long heartbeatInterval = IS_BACKTEST_MODE ? 500_000 : 50;
+                long heartbeatInterval = IS_BACKTEST_MODE ? 5000 : 50;
 
                 if (eventCount % heartbeatInterval == 0) {
                     long elapsedMs = System.currentTimeMillis() - startTimer;
                     double speed = eventCount / (elapsedMs / 1000.0);
 
                     System.out.println(
-                        "[HEARTBEAT] Events=" + eventCount +
+                        " \n[HEARTBEAT] Events=" + eventCount +
                         " | Speed=" + String.format("%.0f", speed) + " ev/s" +
-                        " | Avg Latency=" + (totalLatencyMicros / eventCount) + " µs"
+                        " | Avg Latency=" + (totalLatencyMicros / eventCount) + " µs\n"
                     );
                 }
 
