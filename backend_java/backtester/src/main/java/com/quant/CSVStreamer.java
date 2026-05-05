@@ -42,48 +42,48 @@ public class CSVStreamer {
                 String symbol = fileName.split("[_\\.]")[0].toUpperCase();
                 boolean isMicroQuote = fileName.contains("micro");
 
-                BufferedReader br = new BufferedReader(new FileReader(file));
-                String line;
-                boolean isHeader = true;
+                try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+                    String line;
+                    boolean isHeader = true;
 
-                while ((line = br.readLine()) != null) {
-                    if (isHeader) { isHeader = false; continue; }
-                    
-                    String[] values = line.split(",");
+                    while ((line = br.readLine()) != null) {
+                        if (isHeader) { isHeader = false; continue; }
 
-                    if (isMicroQuote && values.length < 5) continue; 
-                    if (!isMicroQuote && values.length < 6) continue;
-                    
-                    long timestamp;
-                    try {
-                        LocalDateTime dateTime = LocalDateTime.parse(values[0], DATE_FORMATTER);
-                        timestamp = dateTime.toInstant(ZoneOffset.UTC).toEpochMilli();
-                    } catch (Exception e) {
-                        continue; // skip lines with bad timestamps
-                    }
+                        String[] values = line.split(",");
 
-                    if (isMicroQuote) {
-                        // Quotes format -> timestamp, bid_price, bid_size, ask_price, ask_size
-                        double bidPrice = Double.parseDouble(values[1]);
-                        double bidSize = Double.parseDouble(values[2]);
-                        double askPrice = Double.parseDouble(values[3]);
-                        double askSize = Double.parseDouble(values[4]);
-                        
-                        // treat the mid-price as the "price" for standard execution logic
-                        double midPrice = (bidPrice + askPrice) / 2.0;
+                        if (isMicroQuote && values.length < 5) continue;
+                        if (!isMicroQuote && values.length < 6) continue;
 
-                        historicalEvents.add(new Main.MarketEvent("MARKET_DATA", symbol, timestamp, midPrice, 0, 0, 0, bidPrice, askPrice, bidSize, askSize));
-                    } else {
-                        // Macro format -> timestamp, open, high, low, close, volume, trade_count, vwap
-                        double high = Double.parseDouble(values[2]);
-                        double low = Double.parseDouble(values[3]);
-                        double close = Double.parseDouble(values[4]);
-                        double volume = Double.parseDouble(values[5]);
+                        long timestamp;
+                        try {
+                            LocalDateTime dateTime = LocalDateTime.parse(values[0], DATE_FORMATTER);
+                            timestamp = dateTime.toInstant(ZoneOffset.UTC).toEpochMilli();
+                        } catch (Exception e) {
+                            continue; // skip lines with bad timestamps
+                        }
 
-                        historicalEvents.add(new Main.MarketEvent("MARKET_DATA", symbol, timestamp, close, high, low, volume, 0, 0, 0, 0));
+                        if (isMicroQuote) {
+                            // Quotes format -> timestamp, bid_price, bid_size, ask_price, ask_size
+                            double bidPrice = Double.parseDouble(values[1]);
+                            double bidSize = Double.parseDouble(values[2]);
+                            double askPrice = Double.parseDouble(values[3]);
+                            double askSize = Double.parseDouble(values[4]);
+
+                            // treat the mid-price as the "price" for standard execution logic
+                            double midPrice = (bidPrice + askPrice) / 2.0;
+
+                            historicalEvents.add(new Main.MarketEvent("MARKET_DATA", symbol, timestamp, midPrice, 0, 0, 0, bidPrice, askPrice, bidSize, askSize));
+                        } else {
+                            // Macro format -> timestamp, open, high, low, close, volume, trade_count, vwap
+                            double high = Double.parseDouble(values[2]);
+                            double low = Double.parseDouble(values[3]);
+                            double close = Double.parseDouble(values[4]);
+                            double volume = Double.parseDouble(values[5]);
+
+                            historicalEvents.add(new Main.MarketEvent("MARKET_DATA", symbol, timestamp, close, high, low, volume, 0, 0, 0, 0));
+                        }
                     }
                 }
-                br.close();
             }
 
             System.out.println("[CSV STREAMER] Sorting " + historicalEvents.size() + " total events chronologically...");

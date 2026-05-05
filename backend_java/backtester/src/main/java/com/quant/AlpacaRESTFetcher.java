@@ -25,13 +25,13 @@ public class AlpacaRESTFetcher {
     // Alpaca Market Data endpoint 
     private static final String BASE_URL = "https://data.alpaca.markets/v2/stocks/bars";
 
-    // GSON Data Transfer Objects (DTOs) for Alpaca's JSON structure
+    // for converting the JSON response into Java objects
     public static class AlpacaResponse {
         public Map<String, List<AlpacaBar>> bars;
     }
 
     public static class AlpacaBar {
-        @SerializedName("t") public String t; // Timestamp (ISO 8601 string)
+        @SerializedName("t") public String t; // Timestamp 
         @SerializedName("o") public double o; // Open
         @SerializedName("h") public double h; // High
         @SerializedName("l") public double l; // Low
@@ -45,6 +45,7 @@ public class AlpacaRESTFetcher {
         this.limit = limit;
         this.timeframeMinutes = timeframeMinutes;
 
+        // load the config.properties file
         try (java.io.FileInputStream fis = new java.io.FileInputStream("config.properties")) {
             java.util.Properties prop = new java.util.Properties();
             prop.load(fis);

@@ -3,6 +3,7 @@ package com.quant;
 import java.util.HashMap;
 import java.util.Map;
 
+// convert stream of ticks into stream of bars at the desired timeframe
 public class BarAggregator {
 
     private static class PartialBar {
@@ -38,6 +39,7 @@ public class BarAggregator {
             this.volume += event.getVolume();
         }
 
+        // helper to convert into a MarketEvent
         Main.MarketEvent toMarketEvent() {
             return new Main.MarketEvent(
                 "MARKET_DATA",
@@ -71,6 +73,7 @@ public class BarAggregator {
             return null;
         }
 
+        // use buckets to determine which bar the tick belongs to
         long bucketStart = (event.getTimestamp() / bucketSizeMs) * bucketSizeMs;
         String symbol = event.getSymbol();
 

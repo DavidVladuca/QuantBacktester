@@ -40,7 +40,12 @@ public class AlpacaGateway implements ExecutionGateway {
             // map Order to Alpaca's JSON format
             Map<String, Object> orderData = new HashMap<>(); 
             orderData.put("symbol", order.getSymbol()); 
-            orderData.put("qty", String.valueOf((int)order.getQuantity())); 
+            long qty = Math.round(order.getQuantity());
+            if (qty <= 0) {
+                System.err.println("  [ALPACA] ORDER SKIPPED: quantity rounds to zero (" + order.getQuantity() + " shares)");
+                return;
+            }
+            orderData.put("qty", String.valueOf(qty)); 
             orderData.put("side", order.getSide().toString().toLowerCase()); 
             orderData.put("type", order.getType().toString().toLowerCase()); 
             orderData.put("time_in_force", "day"); 

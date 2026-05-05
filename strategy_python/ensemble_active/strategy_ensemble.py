@@ -4,10 +4,10 @@ import os
 import numpy as np
 from collections import deque
 from dataclasses import dataclass
-from Try3.council_zscore_arb import ZScoreArbStrategy
-from Try3.council_momentum import MomentumEngineStrategy
-from Try3.council_obi_flow import OBIFlowStrategy
-from Try3.council_gatekeeper import Gatekeeper
+from ensemble_active.council_zscore_arb import ZScoreArbStrategy
+from ensemble_active.council_momentum import MomentumEngineStrategy
+from ensemble_active.council_obi_flow import OBIFlowStrategy
+from ensemble_active.council_gatekeeper import Gatekeeper
 
 @dataclass 
 class PositionState:

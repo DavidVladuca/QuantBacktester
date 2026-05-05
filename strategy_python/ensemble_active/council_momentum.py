@@ -71,7 +71,7 @@ class MomentumEngineStrategy:
             1.0
         ))
 
-        # NEW: EMA smoothing
+        # EMA smoothing
         if self.confidence_ema is None:
             self.confidence_ema = raw_confidence
         else:

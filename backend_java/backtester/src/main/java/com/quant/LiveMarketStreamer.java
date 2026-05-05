@@ -28,6 +28,7 @@ public class LiveMarketStreamer implements WebSocket.Listener {
         this.eventQueue = eventQueue; 
         this.tickers = tickers;
         this.barAggregator = new BarAggregator(barTimeframeMinutes);
+        // load the config.properties file
         try (FileInputStream fis = new FileInputStream("config.properties")) { 
             Properties prop = new Properties(); 
             prop.load(fis); 
@@ -38,6 +39,7 @@ public class LiveMarketStreamer implements WebSocket.Listener {
         } 
     } 
 
+    // start the WebSocket connection to listen for live market data
     public void start() { 
         HttpClient client = HttpClient.newHttpClient(); 
         client.newWebSocketBuilder() 

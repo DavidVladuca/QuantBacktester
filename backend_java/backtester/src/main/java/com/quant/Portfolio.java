@@ -157,6 +157,11 @@ public class Portfolio {
         double returnPercent = (profitLoss / initialInvestment) * 100;
         
         double benchmarkFinalValue = 0.0;
+        if (beginningPrices.isEmpty()) {
+            System.out.println("Buy & Hold Return: N/A (no price history recorded)");
+            System.out.println("--------------------------------\n");
+            return;
+        }
         double startingCashPerAsset = initialInvestment / beginningPrices.size();
 
         for (Map.Entry<String, Double> entry : beginningPrices.entrySet()) {

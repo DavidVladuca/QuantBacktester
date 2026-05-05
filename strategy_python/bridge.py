@@ -2,7 +2,7 @@ import zmq
 import json
 import time
 
-from Try3.strategy_ensemble import MasterEnsemble # or your trading bot
+from ensemble_active.strategy_ensemble import MasterEnsemble # or your trading bot
 
 def start_strategy(strategy_class):
     # setup (REP = Reply, Listen on port 5555)
@@ -20,17 +20,25 @@ def start_strategy(strategy_class):
     while True:
         try:
             message = socket.recv_string()
-            event = json.loads(message)
-            
-            if event.get("type") == "MARKET_DATA":
-                response_dict = master_bot.process_event(event)
-                
-                if response_dict:
-                    socket.send_string(json.dumps(response_dict))
+            try:
+                event = json.loads(message)
+            except json.JSONDecodeError as e:
+                print(f"[BRIDGE] Malformed JSON from engine: {e}")
+                socket.send_string(json.dumps({"status": "ERROR", "reason": "bad JSON"}))
+                continue
+
+            try:
+                if event.get("type") == "MARKET_DATA":
+                    response_dict = master_bot.process_event(event)
+                    if response_dict:
+                        socket.send_string(json.dumps(response_dict))
+                    else:
+                        socket.send_string(json.dumps({"status": "ACK"}))
                 else:
                     socket.send_string(json.dumps({"status": "ACK"}))
-            else:
-                socket.send_string(json.dumps({"status": "ACK"}))
+            except Exception as e:
+                print(f"[BRIDGE] Strategy error: {e}")
+                socket.send_string(json.dumps({"status": "ERROR", "reason": str(e)}))
 
         except zmq.Again:
             pass

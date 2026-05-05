@@ -77,7 +77,7 @@ def download_micro_quotes(symbols, output_dir, days=14):
     start_all = end_all - timedelta(days=days)
 
     for symbol in symbols:
-        path = os.path.join(output_dir, f"{symbol}_micro_quotes.csv")
+        path = output_dir / f"{symbol}_micro_quotes.csv"
         
         # remove old file if it exists to start fresh
         if path.exists():

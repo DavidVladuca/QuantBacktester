@@ -84,8 +84,8 @@ public class Main {
         String[] csvFiles = {
             "data/NVDA_macro_5min.csv",
             "data/SMH_macro_5min.csv"
-            // "data/NVDA_micro_quotes_5min.csv",
-            // "data/SMH_micro_quotes_5min.csv"
+            // "data/NVDA_micro_quotes.csv",
+            // "data/SMH_micro_quotes.csv"
         };
         
         String[] tickers = {"NVDA", "SMH"};
@@ -147,11 +147,7 @@ public class Main {
             long eventCount = 0;
             long startTimer = System.currentTimeMillis();
 
-            // throtle variables (to not overwhelm strategy with too many events)
-            Map<String, Long> lastSentTimestamp = new HashMap<>();
-            Map<String, Double> lastSentPrice = new HashMap<>();
-
-            while (true) { 
+            while (true) {
                 MarketEvent event = eventQueue.take(); 
                 eventCount++;
                 
@@ -195,10 +191,6 @@ public class Main {
                 
                 finalPrices.put(event.getSymbol(), event.getPrice()); 
                 portfolio.updateMarketPrice(event.getSymbol(), event.getPrice());
-
-                // update the "last send" clock and price
-                lastSentTimestamp.put(event.getSymbol(), event.getTimestamp());
-                lastSentPrice.put(event.getSymbol(), event.getPrice());
 
                 String jsonPayload = gson.toJson(event);
                 String response = null;
